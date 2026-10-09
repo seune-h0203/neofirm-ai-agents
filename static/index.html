@@ -1,0 +1,789 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NeoFirm Generator</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+<style>
+/* ── tokens ──────────────────────────────────────────────── */
+:root {
+  --bg:          #eef2fc;
+  --surface:     #ffffff;
+  --surface-2:   #f4f7fe;
+  --border:      #c8d3eb;
+  --fg:          #0d1629;
+  --fg-2:        #4a5a80;
+  --fg-3:        #8a9ab8;
+  --accent:      #1a56db;
+  --accent-dim:  #1446c0;
+  --accent-bg:   rgba(26, 86, 219, 0.08);
+  --done:        #059669;
+  --done-bg:     rgba(5, 150, 105, 0.09);
+  --run:         #d97706;
+  --run-bg:      rgba(217, 119, 6, 0.09);
+  --err:         #dc2626;
+  --err-bg:      rgba(220, 38, 38, 0.09);
+  --r:           12px;
+  --r-sm:        7px;
+  --shadow:      0 1px 3px rgba(0,0,0,.07), 0 4px 16px rgba(13,22,41,.06);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:         #090e1c;
+    --surface:    #111827;
+    --surface-2:  #19233a;
+    --border:     #243049;
+    --fg:         #d5e0f8;
+    --fg-2:       #6678a0;
+    --fg-3:       #3d4f70;
+    --accent:     #4d8fff;
+    --accent-dim: #3a7fee;
+    --accent-bg:  rgba(77, 143, 255, 0.1);
+    --done:       #10b981;
+    --done-bg:    rgba(16, 185, 129, 0.1);
+    --run:        #f59e0b;
+    --run-bg:     rgba(245, 158, 11, 0.1);
+    --err:        #ef4444;
+    --err-bg:     rgba(239, 68, 68, 0.1);
+    --shadow:     0 1px 3px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.3);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg:         #090e1c;
+  --surface:    #111827;
+  --surface-2:  #19233a;
+  --border:     #243049;
+  --fg:         #d5e0f8;
+  --fg-2:       #6678a0;
+  --fg-3:       #3d4f70;
+  --accent:     #4d8fff;
+  --accent-dim: #3a7fee;
+  --accent-bg:  rgba(77, 143, 255, 0.1);
+  --done:       #10b981;
+  --done-bg:    rgba(16, 185, 129, 0.1);
+  --run:        #f59e0b;
+  --run-bg:     rgba(245, 158, 11, 0.1);
+  --err:        #ef4444;
+  --err-bg:     rgba(239, 68, 68, 0.1);
+  --shadow:     0 1px 3px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.3);
+  color-scheme: dark;
+}
+
+/* ── reset & base ────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { height: 100%; font-size: 15px; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'Outfit', system-ui, sans-serif;
+  min-height: 100%;
+  padding-inline: 16px;
+  padding-block: 0;
+  line-height: 1.6;
+}
+
+/* ── header ──────────────────────────────────────────────── */
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  height: 56px;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  margin-inline: -16px;
+}
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -.02em;
+  color: var(--fg);
+  text-decoration: none;
+}
+.logo-mark {
+  width: 28px; height: 28px;
+  background: var(--accent);
+  border-radius: 7px;
+  display: grid; place-items: center;
+  font-size: .7rem; font-weight: 700;
+  color: #fff; letter-spacing: 0;
+}
+.theme-btn {
+  width: 36px; height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--fg-2);
+  cursor: pointer;
+  display: grid; place-items: center;
+  font-size: 1rem;
+  transition: border-color .15s, color .15s;
+}
+.theme-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── layout ──────────────────────────────────────────────── */
+.main {
+  max-width: 760px;
+  margin: 0 auto;
+  padding-block: 48px 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── hero ────────────────────────────────────────────────── */
+.hero { padding-bottom: 8px; }
+.hero h1 {
+  font-size: clamp(1.6rem, 4vw, 2.2rem);
+  font-weight: 700;
+  letter-spacing: -.03em;
+  text-wrap: balance;
+  line-height: 1.2;
+}
+.hero h1 span { color: var(--accent); }
+.hero p {
+  margin-top: 10px;
+  color: var(--fg-2);
+  font-size: .95rem;
+  max-width: 55ch;
+}
+
+/* ── card ────────────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+}
+.card-head {
+  padding: 20px 24px 0;
+  font-size: .75rem;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--fg-3);
+}
+.card-body { padding: 16px 24px 20px; }
+
+/* ── input form ──────────────────────────────────────────── */
+.input-row {
+  display: flex;
+  gap: 10px;
+}
+.sector-input {
+  flex: 1;
+  min-width: 0;
+  padding: 11px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--fg);
+  font-family: inherit;
+  font-size: .95rem;
+  outline: none;
+  transition: border-color .15s;
+}
+.sector-input::placeholder { color: var(--fg-3); }
+.sector-input:focus { border-color: var(--accent); background: var(--surface); }
+.gen-btn {
+  padding: 11px 22px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: #fff;
+  font-family: inherit;
+  font-size: .9rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, transform .1s;
+}
+.gen-btn:hover { background: var(--accent-dim); }
+.gen-btn:active { transform: scale(.97); }
+.gen-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.chip {
+  padding: 5px 13px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  background: transparent;
+  color: var(--fg-2);
+  font-family: inherit;
+  font-size: .8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.chip:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+
+/* ── progress steps ──────────────────────────────────────── */
+.steps {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  text-align: center;
+  transition: border-color .2s, background .2s;
+}
+.step-badge {
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: .85rem;
+  font-weight: 700;
+  background: var(--border);
+  color: var(--fg-3);
+  transition: background .2s, color .2s;
+}
+.step-label {
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--fg-2);
+}
+.step-status {
+  font-size: .72rem;
+  color: var(--fg-3);
+  font-weight: 500;
+}
+
+/* step states */
+.step[data-state="running"] { border-color: var(--run); background: var(--run-bg); }
+.step[data-state="running"] .step-badge { background: var(--run); color: #fff; animation: pulse 1.2s ease-in-out infinite; }
+.step[data-state="running"] .step-status { color: var(--run); }
+
+.step[data-state="done"] { border-color: var(--done); background: var(--done-bg); }
+.step[data-state="done"] .step-badge { background: var(--done); color: #fff; }
+.step[data-state="done"] .step-status { color: var(--done); }
+
+.step[data-state="error"] { border-color: var(--err); background: var(--err-bg); }
+.step[data-state="error"] .step-badge { background: var(--err); color: #fff; }
+.step[data-state="error"] .step-status { color: var(--err); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .55; }
+}
+
+/* ── tabs ────────────────────────────────────────────────── */
+.tab-bar {
+  display: flex;
+  gap: 2px;
+  padding: 16px 24px 0;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tab-bar::-webkit-scrollbar { display: none; }
+.tab {
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  color: var(--fg-2);
+  font-family: inherit;
+  font-size: .85rem;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+  white-space: nowrap;
+  transition: color .12s;
+}
+.tab:hover { color: var(--fg); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.tab:disabled { opacity: .4; cursor: not-allowed; }
+.tab-dot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--done);
+  margin-left: 5px;
+  vertical-align: middle;
+}
+
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+.tab-content {
+  padding: 24px;
+  min-height: 200px;
+}
+
+/* ── markdown styles ─────────────────────────────────────── */
+.md-body { min-width: 0; }
+.md-body h1 { font-size: 1.3rem; font-weight: 700; margin-bottom: 16px; letter-spacing: -.02em; }
+.md-body h2 { font-size: 1.1rem; font-weight: 700; margin: 24px 0 10px; letter-spacing: -.01em; }
+.md-body h3 { font-size: 1rem; font-weight: 600; margin: 18px 0 8px; }
+.md-body p { margin-bottom: 12px; line-height: 1.7; }
+.md-body ul, .md-body ol { padding-left: 1.4em; margin-bottom: 12px; }
+.md-body li { margin-bottom: 5px; line-height: 1.65; }
+.md-body strong { font-weight: 600; color: var(--fg); }
+.md-body hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+.md-body table { width: 100%; border-collapse: collapse; font-size: .88rem; margin-bottom: 16px; }
+.md-body th {
+  background: var(--surface-2);
+  padding: 9px 13px;
+  text-align: left;
+  font-weight: 600;
+  font-size: .82rem;
+  letter-spacing: .02em;
+  border: 1px solid var(--border);
+  color: var(--fg-2);
+}
+.md-body td { padding: 8px 13px; border: 1px solid var(--border); vertical-align: top; }
+.md-body tr:hover td { background: var(--surface-2); }
+.md-body code {
+  font-family: 'SF Mono', 'Cascadia Code', monospace;
+  font-size: .84em;
+  background: var(--surface-2);
+  padding: 2px 5px;
+  border-radius: 4px;
+}
+.table-wrap { overflow-x: auto; margin-bottom: 16px; }
+.table-wrap table { margin-bottom: 0; }
+
+/* ── footer actions ──────────────────────────────────────── */
+.tab-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 24px;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.action-btns { display: flex; gap: 8px; }
+.btn-sm {
+  padding: 7px 14px;
+  border-radius: var(--r-sm);
+  font-family: inherit;
+  font-size: .82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .12s, border-color .12s;
+}
+.btn-ghost {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg-2);
+}
+.btn-ghost:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+.btn-primary {
+  border: none;
+  background: var(--accent);
+  color: #fff;
+}
+.btn-primary:hover { background: var(--accent-dim); }
+.copy-feedback { font-size: .78rem; color: var(--done); font-weight: 500; opacity: 0; transition: opacity .3s; }
+.copy-feedback.show { opacity: 1; }
+
+/* ── empty states ────────────────────────────────────────── */
+.placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 180px;
+  color: var(--fg-3);
+  text-align: center;
+}
+.placeholder-icon { font-size: 2rem; opacity: .5; }
+.placeholder p { font-size: .88rem; }
+
+/* ── toast ───────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  bottom: 24px; right: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+  padding: 12px 18px;
+  font-size: .85rem;
+  font-weight: 500;
+  max-width: 320px;
+  transform: translateY(12px);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform .25s, opacity .25s;
+  z-index: 999;
+}
+.toast.show { transform: none; opacity: 1; pointer-events: auto; }
+.toast.err { border-color: var(--err); color: var(--err); }
+
+/* ── responsive ──────────────────────────────────────────── */
+@media (max-width: 540px) {
+  .header { padding-inline: 16px; }
+  .main { padding-block: 28px 56px; gap: 16px; }
+  .card-body { padding: 14px 16px 16px; }
+  .card-head { padding: 16px 16px 0; }
+  .tab-content { padding: 16px; }
+  .tab-bar { padding: 12px 16px 0; }
+  .tab-actions { padding: 12px 16px; }
+  .steps { grid-template-columns: repeat(2, 1fr); }
+  .input-row { flex-direction: column; }
+  .gen-btn { width: 100%; }
+}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header class="header">
+  <div class="logo">
+    <div class="logo-mark">NF</div>
+    NeoFirm Generator
+  </div>
+  <button class="theme-btn" id="themeBtn" title="테마 전환" aria-label="테마 전환">☀</button>
+</header>
+
+<!-- Main -->
+<main class="main">
+
+  <!-- Hero -->
+  <section class="hero">
+    <h1>AI 전문서비스 기업<br><span>과제 자동 생성</span></h1>
+    <p>전문서비스 영역을 입력하면 NeoFirm 4가지 과제물을 NotebookLM이 자동으로 작성합니다.</p>
+  </section>
+
+  <!-- Input card -->
+  <div class="card">
+    <div class="card-head">전문서비스 영역</div>
+    <div class="card-body">
+      <div class="input-row">
+        <input
+          class="sector-input"
+          id="sectorInput"
+          type="text"
+          placeholder="예: 노무 (근로계약·급여)"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button class="gen-btn" id="genBtn">생성 시작</button>
+      </div>
+      <div class="chips" id="chips">
+        <button class="chip" data-v="법률 (상업계약·NDA)">법률</button>
+        <button class="chip" data-v="세무 (법인 신고·경정청구)">세무</button>
+        <button class="chip" data-v="노무 (근로계약·급여 처리)">노무</button>
+        <button class="chip" data-v="특허 (출원·명세서 작성)">특허</button>
+        <button class="chip" data-v="부동산 (임대차 계약 관리)">부동산</button>
+        <button class="chip" data-v="보험 (손해사정·청구 처리)">보험</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Progress card -->
+  <div class="card" id="progressCard" hidden>
+    <div class="card-head">진행 상황</div>
+    <div class="card-body">
+      <div class="steps" id="steps">
+        <div class="step" data-key="A" data-state="idle">
+          <div class="step-badge">A</div>
+          <div class="step-label">가치사슬</div>
+          <div class="step-status">대기</div>
+        </div>
+        <div class="step" data-key="B" data-state="idle">
+          <div class="step-badge">B</div>
+          <div class="step-label">작업배분</div>
+          <div class="step-status">대기</div>
+        </div>
+        <div class="step" data-key="C" data-state="idle">
+          <div class="step-badge">C</div>
+          <div class="step-label">투자메모</div>
+          <div class="step-status">대기</div>
+        </div>
+        <div class="step" data-key="D" data-state="idle">
+          <div class="step-badge">D</div>
+          <div class="step-label">문제정의</div>
+          <div class="step-status">대기</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results card -->
+  <div class="card" id="resultsCard" hidden>
+    <div class="tab-bar" id="tabBar">
+      <button class="tab active" data-tab="A" disabled>A. 가치사슬</button>
+      <button class="tab" data-tab="B" disabled>B. 작업배분</button>
+      <button class="tab" data-tab="C" disabled>C. 투자메모</button>
+      <button class="tab" data-tab="D" disabled>D. 문제정의문</button>
+      <button class="tab" data-tab="all" disabled>전체</button>
+    </div>
+
+    <div class="tab-content">
+      <div id="panel-A" class="tab-panel active">
+        <div class="placeholder"><div class="placeholder-icon">⏳</div><p>생성 대기 중…</p></div>
+      </div>
+      <div id="panel-B" class="tab-panel">
+        <div class="placeholder"><div class="placeholder-icon">⏳</div><p>생성 대기 중…</p></div>
+      </div>
+      <div id="panel-C" class="tab-panel">
+        <div class="placeholder"><div class="placeholder-icon">⏳</div><p>생성 대기 중…</p></div>
+      </div>
+      <div id="panel-D" class="tab-panel">
+        <div class="placeholder"><div class="placeholder-icon">⏳</div><p>생성 대기 중…</p></div>
+      </div>
+      <div id="panel-all" class="tab-panel">
+        <div class="placeholder"><div class="placeholder-icon">📄</div><p>모든 섹션이 완료되면 전체 보기가 활성화됩니다.</p></div>
+      </div>
+    </div>
+
+    <div class="tab-actions">
+      <div class="action-btns">
+        <button class="btn-sm btn-ghost" id="copyBtn">복사</button>
+        <button class="btn-sm btn-primary" id="dlBtn">전체 다운로드</button>
+      </div>
+      <span class="copy-feedback" id="copyFeedback">복사됨 ✓</span>
+    </div>
+  </div>
+
+</main>
+
+<!-- Toast -->
+<div class="toast" id="toast" role="alert" aria-live="polite"></div>
+
+<script>
+// ── marked config ─────────────────────────────────────────
+marked.setOptions({ breaks: true, gfm: true });
+
+// Wrap tables for horizontal scroll
+const renderer = new marked.Renderer();
+renderer.table = (header, body) =>
+  `<div class="table-wrap"><table><thead>${header}</thead><tbody>${body}</tbody></table></div>`;
+marked.setOptions({ renderer });
+
+// ── theme ─────────────────────────────────────────────────
+const themeBtn = document.getElementById('themeBtn');
+let dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+try {
+  const saved = localStorage.getItem('theme');
+  if (saved) dark = saved === 'dark';
+} catch {}
+
+function applyTheme() {
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  themeBtn.textContent = dark ? '☀' : '☾';
+  try { localStorage.setItem('theme', dark ? 'dark' : 'light'); } catch {}
+}
+applyTheme();
+themeBtn.addEventListener('click', () => { dark = !dark; applyTheme(); });
+
+// ── chips ─────────────────────────────────────────────────
+document.getElementById('chips').addEventListener('click', e => {
+  const chip = e.target.closest('.chip');
+  if (chip) document.getElementById('sectorInput').value = chip.dataset.v;
+});
+
+// ── tabs ──────────────────────────────────────────────────
+const tabBar = document.getElementById('tabBar');
+let activeTab = 'A';
+tabBar.addEventListener('click', e => {
+  const tab = e.target.closest('.tab');
+  if (!tab || tab.disabled) return;
+  switchTab(tab.dataset.tab);
+});
+
+function switchTab(key) {
+  activeTab = key;
+  tabBar.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === key));
+  document.querySelectorAll('.tab-panel').forEach(p =>
+    p.classList.toggle('active', p.id === `panel-${key}`)
+  );
+}
+
+// ── state ─────────────────────────────────────────────────
+const results = {};
+let generating = false;
+
+// ── toast ─────────────────────────────────────────────────
+const toast = document.getElementById('toast');
+let toastTimer;
+function showToast(msg, isErr = false) {
+  toast.textContent = msg;
+  toast.classList.toggle('err', isErr);
+  toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove('show'), 3500);
+}
+
+// ── step state ────────────────────────────────────────────
+function setStep(key, state, statusText) {
+  const step = document.querySelector(`.step[data-key="${key}"]`);
+  if (!step) return;
+  step.dataset.state = state;
+  step.querySelector('.step-status').textContent = statusText;
+  if (state === 'done') step.querySelector('.step-badge').textContent = '✓';
+  if (state === 'error') step.querySelector('.step-badge').textContent = '✕';
+}
+
+// ── parse SSE ─────────────────────────────────────────────
+function parseSSEChunk(text) {
+  const events = [];
+  for (const line of text.split('\n')) {
+    if (line.startsWith('data: ')) {
+      try { events.push(JSON.parse(line.slice(6))); } catch {}
+    }
+  }
+  return events;
+}
+
+// ── generate ─────────────────────────────────────────────
+const genBtn = document.getElementById('genBtn');
+genBtn.addEventListener('click', startGenerate);
+document.getElementById('sectorInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !generating) startGenerate();
+});
+
+async function startGenerate() {
+  const sector = document.getElementById('sectorInput').value.trim();
+  if (!sector) { showToast('전문서비스 영역을 입력해주세요', true); return; }
+  if (generating) return;
+
+  generating = true;
+  genBtn.disabled = true;
+  genBtn.textContent = '생성 중…';
+
+  // Reset UI
+  document.getElementById('progressCard').hidden = false;
+  document.getElementById('resultsCard').hidden = false;
+  document.querySelectorAll('.step').forEach(s => {
+    s.dataset.state = 'idle';
+    s.querySelector('.step-status').textContent = '대기';
+    s.querySelector('.step-badge').textContent = s.dataset.key;
+  });
+  Object.keys(results).forEach(k => delete results[k]);
+  document.querySelectorAll('.tab-panel').forEach(p => {
+    p.innerHTML = '<div class="placeholder"><div class="placeholder-icon">⏳</div><p>생성 대기 중…</p></div>';
+  });
+  document.getElementById('panel-all').innerHTML = '<div class="placeholder"><div class="placeholder-icon">📄</div><p>모든 섹션이 완료되면 전체 보기가 활성화됩니다.</p></div>';
+  tabBar.querySelectorAll('.tab').forEach(t => { t.disabled = true; t.querySelectorAll('.tab-dot').forEach(d => d.remove()); });
+  tabBar.querySelector('[data-tab="A"]').disabled = false;
+  switchTab('A');
+
+  try {
+    const resp = await fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sector }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: '서버 오류' }));
+      throw new Error(err.detail || '서버 오류');
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const events = parseSSEChunk(buf);
+      buf = buf.includes('\n\n') ? buf.slice(buf.lastIndexOf('\n\n') + 2) : buf;
+      events.forEach(handleEvent);
+    }
+  } catch (err) {
+    showToast(`오류: ${err.message}`, true);
+  } finally {
+    generating = false;
+    genBtn.disabled = false;
+    genBtn.textContent = '다시 생성';
+  }
+}
+
+function handleEvent(ev) {
+  if (ev.type === 'start') {
+    // nothing
+  } else if (ev.type === 'progress') {
+    setStep(ev.key, 'running', '생성 중…');
+    switchTab(ev.key);
+    document.querySelector(`[data-tab="${ev.key}"]`).disabled = false;
+  } else if (ev.type === 'result') {
+    results[ev.key] = ev.content;
+    setStep(ev.key, 'done', '완료');
+    renderPanel(ev.key, ev.content);
+    // mark tab done
+    const tab = tabBar.querySelector(`[data-tab="${ev.key}"]`);
+    if (!tab.querySelector('.tab-dot')) {
+      const dot = document.createElement('span');
+      dot.className = 'tab-dot';
+      tab.appendChild(dot);
+    }
+    switchTab(ev.key);
+  } else if (ev.type === 'error') {
+    setStep(ev.key, 'error', '오류');
+    document.getElementById(`panel-${ev.key}`).innerHTML =
+      `<div class="placeholder" style="color:var(--err)"><div class="placeholder-icon">⚠</div><p>${ev.message}</p></div>`;
+    showToast(`${ev.key} 생성 오류: ${ev.message}`, true);
+  } else if (ev.type === 'done') {
+    renderAll();
+    const allTab = tabBar.querySelector('[data-tab="all"]');
+    allTab.disabled = false;
+    showToast('모든 과제 생성 완료 ✓');
+  }
+}
+
+function renderPanel(key, md) {
+  const panel = document.getElementById(`panel-${key}`);
+  panel.innerHTML = `<div class="md-body">${marked.parse(md)}</div>`;
+}
+
+function renderAll() {
+  const parts = ['A','B','C','D'].filter(k => results[k]);
+  if (!parts.length) return;
+  const combined = parts.map(k => results[k]).join('\n\n---\n\n');
+  document.getElementById('panel-all').innerHTML = `<div class="md-body">${marked.parse(combined)}</div>`;
+}
+
+// ── copy ──────────────────────────────────────────────────
+document.getElementById('copyBtn').addEventListener('click', async () => {
+  const panel = document.querySelector(`.tab-panel.active .md-body`);
+  const text = panel ? panel.innerText : (results[activeTab] || '');
+  try {
+    await navigator.clipboard.writeText(text);
+    const fb = document.getElementById('copyFeedback');
+    fb.classList.add('show');
+    setTimeout(() => fb.classList.remove('show'), 2000);
+  } catch {
+    showToast('클립보드 복사를 지원하지 않는 환경입니다', true);
+  }
+});
+
+// ── download ──────────────────────────────────────────────
+document.getElementById('dlBtn').addEventListener('click', () => {
+  if (!Object.keys(results).length) { showToast('먼저 생성을 실행해주세요', true); return; }
+  window.location.href = '/api/download/%EC%A0%84%EC%B2%B4%EB%B3%B4%EA%B3%A0%EC%84%9C.md';
+});
+</script>
+</body>
+</html>

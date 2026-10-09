@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# pytest
+.pytest_cache/
+
+# Logs (raw error logs)
+**/generation_error.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+*.swp
+
+# Old patent-topic PPTX (not the final admissions consulting one)
+output/final_특허 출원_명세서 작성_*.pptx
+output/NeoFirm_특허 출원_명세서 작성_*.pptx

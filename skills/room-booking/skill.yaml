@@ -1,0 +1,97 @@
+name: book-room-event
+version: "1.0.0"
+description: |
+  Unified room booking + Google Calendar skill.
+  Step 1 → GCS-PULSE: check availability, book room, handle fallback alternatives.
+  Step 2 → GWS Calendar: create event, add room resource, invite attendees.
+  Rollback: releases the GCS-PULSE booking if Calendar creation fails.
+
+entry_point: book_room_event.py
+
+parameters:
+  title:
+    type: string
+    required: true
+    description: Calendar event title.
+  start:
+    type: string
+    required: true
+    description: ISO 8601 start datetime, e.g. 2026-10-15T10:00:00+09:00
+  end:
+    type: string
+    required: true
+    description: ISO 8601 end datetime.
+  attendees:
+    type: array
+    items:
+      type: string
+      format: email
+    required: true
+    description: Attendee email addresses. Notification emails are sent automatically.
+  room_preference:
+    type: string
+    required: false
+    description: Preferred room ID (e.g. R-101) or type keyword (e.g. "large", "small").
+  location:
+    type: string
+    required: false
+    default: "Seoul HQ"
+    description: Building/campus for the room search.
+  capacity:
+    type: integer
+    required: false
+    default: 0
+    description: Minimum seat count (0 = auto-derive from attendee count).
+  dry_run:
+    type: boolean
+    required: false
+    default: false
+    description: Validate and plan without committing any reservations.
+
+outputs:
+  booking_id:
+    type: string
+    description: GCS-PULSE booking confirmation ID (empty on dry_run).
+  event_id:
+    type: string
+    description: Google Calendar event ID (empty on dry_run).
+  room_id:
+    type: string
+    description: Reserved room ID.
+  calendar_link:
+    type: string
+    description: Direct link to the created Calendar event.
+  status:
+    type: string
+    enum: [success, dry_run_ok, partial_failure, failed]
+  errors:
+    type: array
+    items:
+      type: string
+    description: Errors encountered during execution.
+
+on_error: rollback          # triggers _rollback() in book_room_event.py
+
+environment:
+  GCS_PULSE_API_URL:
+    required: false
+    default: "http://localhost:9000"
+    description: GCS-PULSE service base URL (mock server or live).
+  GCS_PULSE_API_KEY:
+    required: false
+    description: Bearer token for GCS-PULSE API auth.
+  GOOGLE_SERVICE_ACCOUNT_JSON:
+    required: false
+    description: Path to GCP service account key file for Calendar API.
+  GOOGLE_CALENDAR_ID:
+    required: false
+    default: "primary"
+    description: Target Google Calendar resource ID.
+  GOOGLE_IMPERSONATE_EMAIL:
+    required: false
+    description: Domain user to impersonate (required with service accounts).
+
+dependencies:
+  - google-api-python-client>=2.100.0
+  - google-auth>=2.23.0
+  - httpx>=0.27.0

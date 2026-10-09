@@ -1,0 +1,63 @@
+===== GCS-PULSE 라이브 API dry-run 테스트 =====
+일시: 2026-10-08 14:26
+API URL: https://api.1000.school  ← 실제 FastAPI 서버 (app.1000.school 은 Next.js 프론트)
+인증: Bearer k-Eb... (환경변수)
+
+--- 명령어 ---
+$env:GCS_PULSE_API_URL = "https://api.1000.school"
+$env:GCS_PULSE_API_KEY = "<키 환경변수>"
+python book_room_event.py --title "GCS Live Test" --start "2026-10-15T10:00:00+09:00" \
+  --end "2026-10-15T11:00:00+09:00" --attendees elice0105412@gmail.com \
+  --room-preference "small" --dry-run --json
+
+--- 실제 API 호출 (httpx 로그) ---
+GET https://api.1000.school/meeting-rooms                         200 OK
+GET https://api.1000.school/meeting-rooms/1/reservations?date=2026-10-15   200 OK
+GET https://api.1000.school/meeting-rooms/2/reservations?date=2026-10-15   200 OK
+GET https://api.1000.school/meeting-rooms/4/reservations?date=2026-10-15   200 OK
+GET https://api.1000.school/meeting-rooms/5/reservations?date=2026-10-15   200 OK
+GET https://api.1000.school/meeting-rooms/7/reservations?date=2026-10-15   200 OK
+GET https://api.1000.school/meeting-rooms/8/reservations?date=2026-10-15   200 OK
+GET https://api.1000.school/meeting-rooms/9/reservations?date=2026-10-15   200 OK
+GET https://api.1000.school/meeting-rooms/10/reservations?date=2026-10-15  200 OK
+GET https://api.1000.school/meeting-rooms/11/reservations?date=2026-10-15  200 OK
+
+--- 라이브 회의실 목록 (총 14개) ---
+id=1   N.MR1   AI관 6층 North  최대 4인
+id=2   N.MR2   AI관 6층 North  최대 4인
+id=3   N.MR3   AI관 6층 North  최대 8인 (화상회의실)
+id=4   S.MR1   AI관 6층 South  최대 4인
+id=5   S.MR2   AI관 6층 South  최대 4인
+id=6   S.MR3   AI관 6층 South  최대 6인
+id=7   N.FR1   AI관 6층 North  최대 1인
+id=8   N.FR2   AI관 6층 North  최대 1인
+id=9   S.FR1   AI관 6층 South  최대 1인
+id=10  S.FR2   AI관 6층 South  최대 1인
+id=11  S.FR3   AI관 6층 South  최대 1인
+id=12  S.FR4   AI관 6층 South  최대 1인
+id=13  1회의실  이공관 3층      최대 8인 회의실
+id=14  2회의실  이공관 3층      최대 12인 회의실
+
+--- 결과 JSON ---
+{
+  "status": "dry_run_ok",
+  "booking_id": "DRY-RUN",
+  "event_id": "DRY-RUN",
+  "room_id": "2",
+  "calendar_link": "",
+  "errors": []
+}
+
+--- 검증 ---
+✅ 실제 API 서버 연결 확인 (api.1000.school)
+✅ 회의실 목록 JSON 응답 (14개)
+✅ 예약 현황 조회 성공 (각 방별 reservations 확인)
+✅ dry_run_ok — 외부 상태 변경 없음
+✅ 선택된 방: id=2, N.MR2 (AI관 6층 North, 최대 4인)
+
+--- API 스펙 확인 (openapi.json) ---
+POST /meeting-rooms/{room_id}/reservations
+  body: { start_at: datetime, end_at: datetime, purpose?: string }
+  response: { id, meeting_room_id, reserved_by_user_id, reserved_by_name, start_at, end_at, purpose, can_cancel }
+DELETE /meeting-rooms/reservations/{reservation_id}
+  response: { message: string }

@@ -1,0 +1,114 @@
+[
+  {
+    "id": "E01",
+    "statement": "입시 결과는 대학 진학이라는 되돌릴 수 없는 결과로 이어진다 — 잘못된 전략의 비용이 시간과 기회 모두에서 매우 크다.",
+    "source": "NeoFirm_입시컨설팅_1.pptx (Slide 2), NLM Q1 (Conversation 2013cf58)",
+    "confidence": "high",
+    "category": "customer"
+  },
+  {
+    "id": "E02",
+    "statement": "기존 입시 컨설팅은 전문가 1인이 학생 데이터 수집→학생부/성적 분석→대학·전형 비교→지원전략 수립→상담까지 모든 과정을 혼자 처리한다.",
+    "source": "NeoFirm_입시컨설팅_1.pptx (Slide 3), NLM Q1 (Conversation 2013cf58)",
+    "confidence": "high",
+    "category": "market"
+  },
+  {
+    "id": "E03",
+    "statement": "기존 입시 컨설팅의 구조적 문제: 긴 처리 시간, 높은 상담 비용, 컨설턴트별 품질 편차 — 세 가지가 동시에 존재.",
+    "source": "NeoFirm_입시컨설팅_1.pptx (Slide 3), NLM Q6 (Conversation 0b225779)",
+    "confidence": "high",
+    "category": "market"
+  },
+  {
+    "id": "E04",
+    "statement": "NeoFirm AI 담당 업무(Scale): 학생 데이터 수집·분석, 대학·전형 비교 자동화, 지원 가능성 분석, 수시 6장 후보군 생성, 변화 모니터링, 전략 시뮬레이션.",
+    "source": "NeoFirm_입시컨설팅_1.pptx (Slide 5), NLM Q2 (Conversation 706f3827)",
+    "confidence": "high",
+    "category": "technical"
+  },
+  {
+    "id": "E05",
+    "statement": "NeoFirm 전문가 담당 업무(Judgment): 학생 목표·상황 파악, AI 결과 검토, 우선순위 판단, 최종 수시 6장 전략 결정, 학부모 상담, 예외 상황 처리.",
+    "source": "NeoFirm_입시컨설팅_1.pptx (Slide 5), NLM Q2 (Conversation 706f3827)",
+    "confidence": "high",
+    "category": "technical"
+  },
+  {
+    "id": "E06",
+    "statement": "입시 컨설팅에서 고객 반복 이용이 발생하는 구조적 이유: 성적·학생부·지원전략이 시즌 내내 끊임없이 변화한다.",
+    "source": "NeoFirm_입시컨설팅_1.pptx (Slide 4), NLM Q3 (Conversation 66401175)",
+    "confidence": "high",
+    "category": "market"
+  },
+  {
+    "id": "E07",
+    "statement": "GTM 5단계: 무료 AI 진단(획득) → 개인별 진단 결과(가치 체감) → 지원전략 관심 유도(니즈 확인) → 유료 컨설팅 전환 → 시즌 내 반복 사용.",
+    "source": "NeoFirm_입시컨설팅_1.pptx (Slide 6, 7), NLM Q4 (Conversation 9b64da24)",
+    "confidence": "high",
+    "category": "business"
+  },
+  {
+    "id": "E08",
+    "statement": "데이터 플라이휠 3대 축: 학생 데이터(AI Scale) × 전문가 판단(Trust) × 실제 지원 결과(합불 데이터) → 추천 정교화 → 서비스 가치 상승.",
+    "source": "NeoFirm_입시컨설팅_1.pptx (Slide 7), NLM Q5 (Conversation 928d6014)",
+    "confidence": "high",
+    "category": "business"
+  },
+  {
+    "id": "E09",
+    "statement": "Moat 작동 구조: 학생이 늘어날수록 지원 데이터가 축적되고, 축적된 데이터가 추천을 더 정교하게 만들며, 이것이 서비스 가치 상승과 추가 고객 유입을 유도하는 선순환.",
+    "source": "NeoFirm_입시컨설팅_1.pptx (Slide 7), NLM Q5 (Conversation 928d6014)",
+    "confidence": "high",
+    "category": "business"
+  },
+  {
+    "id": "E10",
+    "statement": "NeoFirm의 핵심 가치 제안: '입시 정보를 알려드립니다'가 아니라 '내 상황에서 지원할 대학·전형과 수시 6장 전략'을 판다 — 정보가 아닌 결과를 파는 비즈니스.",
+    "source": "NeoFirm_입시컨설팅_1.pptx (Slide 6), NLM Q6 (Conversation 0b225779)",
+    "confidence": "high",
+    "category": "business"
+  },
+  {
+    "id": "E11",
+    "statement": "신뢰 리스크: 입시 결과의 불가역성으로 인해 학부모의 AI 신뢰 임계값이 매우 높음. NeoFirm 해결책: 전문가가 최종 판단 담당 = AI(Scale) + 전문가(Trust).",
+    "source": "NeoFirm_입시컨설팅_1.pptx, NLM Q7 retry (Conversation b26b77c5)",
+    "confidence": "high",
+    "category": "risk"
+  },
+  {
+    "id": "E12",
+    "statement": "개인정보 리스크: 학생 성적·학생부·지원 결과 등 민감 정보를 대량 수집·축적해야 하나, 소스에 개인정보 보호 대책(암호화, 동의 절차, 관리 방침)이 명시되어 있지 않음.",
+    "source": "NLM Q7 retry (Conversation b26b77c5) — source gap identified",
+    "confidence": "medium",
+    "category": "risk"
+  },
+  {
+    "id": "E13",
+    "statement": "미검증 가정 1: 무료 AI 진단 → 유료 컨설팅 전환율 — 무료 고객 중 몇 %가 유료로 전환하는지 데이터 없음.",
+    "source": "NLM Q8 (Conversation 23fae29e) — unvalidated assumption",
+    "confidence": "low",
+    "category": "business"
+  },
+  {
+    "id": "E14",
+    "statement": "미검증 가정 2: 경험 있는 입시 컨설턴트 모집 가능성 — 하이브리드 모델에 참여할 전문가를 충분히 확보할 수 있는지 미검증.",
+    "source": "NLM Q8 (Conversation 23fae29e) — unvalidated assumption",
+    "confidence": "low",
+    "category": "risk"
+  },
+  {
+    "id": "E15",
+    "statement": "미검증 가정 3: 수시 6장 후보군 AI 자동화 품질 — AI가 생성한 지원 후보군의 실제 합격 가능성이 전문가 판단 대비 충분한 수준인지 미검증.",
+    "source": "NLM Q8 (Conversation 23fae29e) — unvalidated assumption",
+    "confidence": "low",
+    "category": "technical"
+  },
+  {
+    "id": "E16",
+    "statement": "NLM 라이브 쿼리 결과: 노트북 49e931e3, 소스 NeoFirm_입시컨설팅_1.pptx. 총 8회 쿼리 실행, 7회 성공(Q1-Q6, Q8) + 1회 Q7 retry 성공. 인증 정상.",
+    "source": "NLM Live Session 2026-10-09",
+    "confidence": "high",
+    "category": "market"
+  }
+]

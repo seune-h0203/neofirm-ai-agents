@@ -1,0 +1,32 @@
+﻿python : 2026-10-08 13:59:55,006 WARNING  gcs_pulse.client — GCS-PULSE: no live server configured — using in-process mo
+ck
+At line:10 char:1
++ python book_room_event.py --title "Team Sync" --start "2026-10-17T09: ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (2026-10-08 13:5...in-process mock:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+2026-10-08 13:59:55,006 WARNING  gws.calendar — GWS Calendar: no service account configured — using in-process mock
+2026-10-08 13:59:55,006 INFO     book_room_event — Step 1 — GCS-PULSE: searching rooms (cap≥3, location='Seoul HQ', pre
+f='')
+2026-10-08 13:59:55,006 INFO     book_room_event —   Attempt 1/3: booking room R-101 (Standard Room)
+2026-10-08 13:59:55,006 INFO     book_room_event —   Room booked: R-101 → booking DRY-RUN
+2026-10-08 13:59:55,006 INFO     book_room_event — Step 2 — GWS Calendar: creating event 'Team Sync' (room R-101)
+2026-10-08 13:59:55,006 INFO     book_room_event —   Calendar event created: DRY-RUN
+2026-10-08 13:59:55,006 INFO     book_room_event —   Notification emails sent to: a@ex.com, b@ex.com, c@ex.com
+2026-10-08 13:59:55,006 INFO     book_room_event — 
+2026-10-08 13:59:55,006 INFO     book_room_event — === [DRY RUN] Skill completed: DRY_RUN_OK ===
+2026-10-08 13:59:55,006 INFO     book_room_event —   Room:          R-101 (Standard Room)
+2026-10-08 13:59:55,006 INFO     book_room_event —   Booking ID:    DRY-RUN
+2026-10-08 13:59:55,006 INFO     book_room_event —   Confirm code:  DRY-RUN
+2026-10-08 13:59:55,006 INFO     book_room_event —   Event ID:      DRY-RUN
+2026-10-08 13:59:55,006 INFO     book_room_event —   Calendar link: 
+2026-10-08 13:59:55,007 INFO     book_room_event —   Attendees (3): a@ex.com, b@ex.com, c@ex.com
+{
+  "status": "dry_run_ok",
+  "booking_id": "DRY-RUN",
+  "event_id": "DRY-RUN",
+  "room_id": "R-101",
+  "calendar_link": "",
+  "errors": []
+}

@@ -1,0 +1,155 @@
+{
+  "title": "NeoFirm AI Investment Committee",
+  "sector": "AI + Expert Hybrid College Admissions Consulting (입시 컨설팅)",
+  "decision": "HOLD",
+  "scores_by_reviewer": {
+    "market": {
+      "problem_severity": 5,
+      "customer_evidence": 1,
+      "market_opportunity": 4,
+      "differentiation": 3,
+      "evidence_quality": 3
+    },
+    "technology": {
+      "technical_feasibility": 4,
+      "execution_feasibility": 1,
+      "differentiation": 4,
+      "scalability": 4,
+      "evidence_quality": 2
+    },
+    "business": {
+      "business_model": 4,
+      "execution_feasibility": 1,
+      "scalability": 4,
+      "risk": 3,
+      "evidence_quality": 2
+    }
+  },
+  "decisions_by_reviewer": {
+    "market": "HOLD",
+    "technology": "HOLD",
+    "business": "INVEST"
+  },
+  "slides": [
+    {
+      "slide_number": 1,
+      "title": "NeoFirm × College Admissions Consulting",
+      "key_points": [
+        "NeoFirm Operating Model: Complex expert work → separate repeatable tasks → AI automates → Expert keeps final judgment",
+        "Applied to: 대입 컨설팅 — 가장 반복적이고 Pain이 큰 전문가 서비스 시장",
+        "AI = Scale: 데이터 수집·분석·후보군 생성·모니터링·시뮬레이션",
+        "Expert = Judgment: 목표 파악·AI 검토·우선순위 결정·최종 전략·상담",
+        "Data flywheel: Student data × Expert decisions × Actual outcomes → Better recommendations"
+      ],
+      "badge": ""
+    },
+    {
+      "slide_number": 2,
+      "title": "Why Admissions Consulting Fits NeoFirm",
+      "key_points": [
+        "Pain: '내 성적으로 어디에 지원해야 하지?' — 불가역적 결정, 실패 비용 매우 큼 (E01)",
+        "반복성: 성적·학생부·지원전략이 시즌 내내 끊임없이 변화 (E06)",
+        "정보 파편화: 대학·전형 정보가 흩어져 있어 최적 전략 찾기 불가 (E01)",
+        "기존 구조 실패: 전문가 1인이 전부 처리 → 긴 처리 시간 + 높은 비용 + 품질 편차 (E03)",
+        "NeoFirm B2B 조건 정합: 반복·표준화 가능 업무 + 전문가 판단 필요 + 데이터 학습 효과 (Slide 4)"
+      ],
+      "badge": ""
+    },
+    {
+      "slide_number": 3,
+      "title": "AS-IS → TO-BE: Hybrid Workflow",
+      "key_points": [
+        "AS-IS: 전문가 1인 → 데이터 수집 → 학생부 분석 → 대학 비교 → 전략 수립 → 상담 (모두 혼자)",
+        "문제: 긴 처리 시간 + 높은 상담 비용 + 컨설턴트별 품질 편차",
+        "TO-BE AI: 수집·분석·비교, 지원 가능성 분석, 수시 6장 후보군 생성, 모니터링, 전략 시뮬레이션 (E04)",
+        "TO-BE Expert: 목표·상황 파악, AI 결과 검토, 우선순위 판단, 최종 전략 결정, 상담, 예외 처리 (E05)",
+        "루프: 수시 6장 전략 → 실제 지원 → 합격/불합격 → 데이터 축적 → 추천 정교화"
+      ],
+      "badge": ""
+    },
+    {
+      "slide_number": 4,
+      "title": "Business Model: Free AI Diagnosis → Paid Consulting",
+      "key_points": [
+        "무료 AI 진단 (Acquisition Hook): '내 성적으로 어디까지 갈 수 있을까?' — 고3·학부모 대규모 유입 (E07)",
+        "개인별 진단 결과: 성적·학생부 기반 맞춤 분석 → 서비스 가치 체감",
+        "지원전략 관심 유도: 수시 6장 구체 전략 니즈 확인 → 자연스러운 유료 전환 욕구",
+        "유료 컨설팅 전환: AI + 전문가 하이브리드 수시 6장 전략 상담 시작",
+        "시즌 내 반복 사용: 성적·학생부·전략 변화 따라 시즌 내내 재사용 (E10 — '정보가 아닌 결과를 판다')"
+      ],
+      "badge": ""
+    },
+    {
+      "slide_number": 5,
+      "title": "Moat: Student Data × Expert Judgment × Outcomes",
+      "key_points": [
+        "학생 증가 → 지원 데이터 축적 → 추천 정교화 → 서비스 가치 상승 → 더 많은 학생 (E09)",
+        "3-layer Moat: 학생 프로파일 데이터 × 전문가 수정 패턴 × 실제 합불 결과 (E08)",
+        "기술적 진입장벽: 합불 데이터로 fine-tuning된 입시 특화 모델은 일반 LLM이 복제 불가",
+        "Cold Start 전략: Day 1 전문가 의존 → 데이터 축적 → AI 의존도 점진적 증가",
+        "경쟁 우위 조건: 100건 이상 파일럿 데이터 축적 후 moat 실질 형성"
+      ],
+      "badge": ""
+    },
+    {
+      "slide_number": 6,
+      "title": "Investment Criteria Scores",
+      "key_points": [
+        "Market avg: (5+1+4+3+3)/5 = 3.2/5 — Pain 강하나 고객 검증 없음 (customer_evidence=1)",
+        "Technology avg: (4+1+4+4+2)/5 = 3.0/5 — 기술 가능하나 팀·프로토타입 없음 (execution_feasibility=1)",
+        "Business avg: (4+1+4+3+2)/5 = 2.8/5 — 모델 설계 탁월하나 경제성 미검증",
+        "공통 최저점: execution_feasibility = 1/5 (세 리뷰어 독립적으로 동일 판정)",
+        "공통 최고점: problem_severity = 5/5, 시장 구조·Pain 강도에 이견 없음"
+      ],
+      "badge": ""
+    },
+    {
+      "slide_number": 7,
+      "title": "Where Reviewers Disagreed",
+      "key_points": [
+        "D00 (HIGH): Market=HOLD, Technology=HOLD, Business=INVEST (Conditional)",
+        "분열의 성격: 비즈니스 모델에 대한 불일치가 아닌 투자 시점에 대한 불일치",
+        "Market Challenge: 유료 전환율 미검증 (E13) — 이것 없이 모델이 작동하는지 알 수 없다",
+        "Technology Challenge: Cold Start 문제 — 데이터 없이 플라이휠이 작동하는가?",
+        "Business Defense: 단계적 전문가 의존으로 Cold Start 우회 가능; 파일럿 후 모든 불확실성 측정 가능"
+      ],
+      "badge": ""
+    },
+    {
+      "slide_number": 8,
+      "title": "AI Committee Discussion Outcome",
+      "key_points": [
+        "RESOLVED: Pain + 시장 구조 타당성 — 세 리뷰어 모두 동의",
+        "RESOLVED: 비즈니스 모델 논리 — 무료→유료, 코호트 재발생, '결과 판매' 모두 타당",
+        "RESOLVED: Cold Start 해결 방식 — 전문가 의존도 높음→데이터 축적→AI 증가 (Technology 수용)",
+        "PARTIALLY RESOLVED: D00 — 파일럿 후 INVEST 전환에는 모두 동의, 지금은 HOLD",
+        "UNRESOLVED: 전문가 확보 가능성, 규제 환경, AI 초기 품질"
+      ],
+      "badge": ""
+    },
+    {
+      "slide_number": 9,
+      "title": "Final Decision: HOLD",
+      "key_points": [
+        "Decision: HOLD | Confidence: MEDIUM",
+        "이유 1: execution_feasibility=1 — 팀 없음, 프로토타입 없음, 전문가 파트너 없음",
+        "이유 2: customer_evidence=1 — 유료 전환율·LOI·파일럿 데이터 전무",
+        "이유 3: 파일럿 후 강력한 INVEST 케이스 — PASS가 아닌 이유",
+        "HOLD = 실행 증거를 조건으로 투자를 예약하는 결정"
+      ],
+      "badge": "HOLD"
+    },
+    {
+      "slide_number": 10,
+      "title": "Next Validation Actions (90-Day Plan)",
+      "key_points": [
+        "[30일] 창업팀 확인: AI 엔지니어 ≥1 + 입시 전문 컨설턴트 ≥1 (수시 컨설팅 5년+)",
+        "[45일] AI 프로토타입: 지원 가능성 분석 + 수시 6장 후보군 생성 최소 기능",
+        "[60일] 파일럿 시작: 고3 학생 10명 무료 AI 진단 → 유료 수시 6장 전략 상담",
+        "[75일] 핵심 지표 측정: 유료 전환율, 전문가 수정률, 만족도, 상담당 소요 시간",
+        "[90일] 투자 재검토: 전환율 ≥10% + 수정률 ≤30% + 만족도 확인 시 INVEST"
+      ],
+      "badge": ""
+    }
+  ]
+}
