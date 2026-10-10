@@ -94,51 +94,39 @@ _executor = ThreadPoolExecutor(max_workers=4)
 
 
 def _claude_fallback(question: str) -> str:
-    """NLM 없을 때 Gemini → Claude 순서로 시도."""
-    import httpx
+    """NLM 없을 때 Gemini로 시도 (503 재시도 포함)."""
+    import httpx, time
 
     gemini_key = os.environ.get("GEMINI_API_KEY", "")
     if gemini_key:
-        try:
-            resp = httpx.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={gemini_key}",
-                headers={"content-type": "application/json"},
-                json={
-                    "contents": [{"parts": [{"text": question}]}],
-                    "generationConfig": {"maxOutputTokens": 1024},
-                },
-                timeout=60,
-            )
-            if resp.status_code == 200:
-                parts = resp.json()["candidates"][0]["content"]["parts"]
-                text = next((p["text"] for p in parts if "text" in p), "")
-                if text:
-                    return text.strip()
-        except Exception as e:
-            _err_log.warning(f"Gemini fallback 실패: {e}")
+        for attempt in range(3):
+            try:
+                resp = httpx.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={gemini_key}",
+                    headers={"content-type": "application/json"},
+                    json={
+                        "contents": [{"parts": [{"text": question}]}],
+                        "generationConfig": {"maxOutputTokens": 1024},
+                    },
+                    timeout=60,
+                )
+                if resp.status_code == 200:
+                    parts = resp.json()["candidates"][0]["content"]["parts"]
+                    text = next((p["text"] for p in parts if "text" in p), "")
+                    if text:
+                        return text.strip()
+                    _err_log.warning(f"Gemini 빈 응답 (시도 {attempt+1}/3)")
+                elif resp.status_code == 503:
+                    _err_log.warning(f"Gemini 503 (시도 {attempt+1}/3), {5*(attempt+1)}초 후 재시도")
+                    time.sleep(5 * (attempt + 1))
+                else:
+                    _err_log.warning(f"Gemini {resp.status_code}: {resp.text[:200]}")
+                    break
+            except Exception as e:
+                _err_log.warning(f"Gemini 호출 실패 (시도 {attempt+1}/3): {e}")
+                time.sleep(3)
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        raise RuntimeError("NotebookLM CLI를 찾을 수 없고 GEMINI_API_KEY도 ANTHROPIC_API_KEY도 없습니다.")
-    try:
-        resp = httpx.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": "claude-haiku-4-5-20251001",
-                "max_tokens": 1024,
-                "messages": [{"role": "user", "content": question}],
-            },
-            timeout=60,
-        )
-        resp.raise_for_status()
-        return resp.json()["content"][0]["text"].strip()
-    except Exception as e:
-        raise RuntimeError(f"Claude API fallback 실패: {e}")
+    raise RuntimeError("Gemini API 응답 실패 — 잠시 후 다시 시도해주세요")
 
 
 def _run_nlm_sync(question: str) -> str:
@@ -385,47 +373,39 @@ async def generate(req: GenerateRequest):
 def _committee_call_claude(sys_prompt: str, user_msg: str,
                             model: str = "claude-haiku-4-5-20251001",
                             max_tokens: int = 2048) -> str:
-    import httpx
+    import httpx, time
 
     gemini_key = os.environ.get("GEMINI_API_KEY", "")
     if gemini_key:
-        resp = httpx.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={gemini_key}",
-            headers={"content-type": "application/json"},
-            json={
-                "system_instruction": {"parts": [{"text": sys_prompt}]},
-                "contents": [{"parts": [{"text": user_msg}]}],
-                "generationConfig": {"maxOutputTokens": max_tokens},
-            },
-            timeout=120,
-        )
-        if resp.status_code == 200:
-            parts = resp.json()["candidates"][0]["content"]["parts"]
-            text = next((p["text"] for p in parts if "text" in p), "")
-            if text:
-                return text.strip()
-        _err_log.warning(f"Gemini API {resp.status_code}: {resp.text[:200]}")
+        for attempt in range(3):
+            try:
+                resp = httpx.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={gemini_key}",
+                    headers={"content-type": "application/json"},
+                    json={
+                        "system_instruction": {"parts": [{"text": sys_prompt}]},
+                        "contents": [{"parts": [{"text": user_msg}]}],
+                        "generationConfig": {"maxOutputTokens": max_tokens},
+                    },
+                    timeout=120,
+                )
+                if resp.status_code == 200:
+                    parts = resp.json()["candidates"][0]["content"]["parts"]
+                    text = next((p["text"] for p in parts if "text" in p), "")
+                    if text:
+                        return text.strip()
+                    _err_log.warning(f"Gemini 빈 응답 (시도 {attempt+1}/3)")
+                elif resp.status_code == 503:
+                    _err_log.warning(f"Gemini 503 (시도 {attempt+1}/3), {5*(attempt+1)}초 후 재시도")
+                    time.sleep(5 * (attempt + 1))
+                else:
+                    _err_log.warning(f"Gemini API {resp.status_code}: {resp.text[:200]}")
+                    break
+            except Exception as e:
+                _err_log.warning(f"Gemini 호출 실패 (시도 {attempt+1}/3): {e}")
+                time.sleep(3)
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY 미설정 — 위원회 파이프라인 비활성화")
-    resp = httpx.post(
-        "https://api.anthropic.com/v1/messages",
-        headers={
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        },
-        json={
-            "model": model,
-            "max_tokens": max_tokens,
-            "system": sys_prompt,
-            "messages": [{"role": "user", "content": user_msg}],
-        },
-        timeout=120,
-    )
-    resp.raise_for_status()
-    return resp.json()["content"][0]["text"].strip()
+    raise RuntimeError("Gemini API 응답 실패 — 위원회 분석을 완료할 수 없습니다 (잠시 후 재시도)")
 
 
 def _committee_extract_score(text: str) -> dict:
