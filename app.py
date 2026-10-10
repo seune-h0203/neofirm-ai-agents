@@ -362,10 +362,27 @@ async def generate(req: GenerateRequest):
 def _committee_call_claude(sys_prompt: str, user_msg: str,
                             model: str = "claude-haiku-4-5-20251001",
                             max_tokens: int = 2048) -> str:
+    import httpx
+
+    gemini_key = os.environ.get("GEMINI_API_KEY", "")
+    if gemini_key:
+        resp = httpx.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={gemini_key}",
+            headers={"content-type": "application/json"},
+            json={
+                "system_instruction": {"parts": [{"text": sys_prompt}]},
+                "contents": [{"parts": [{"text": user_msg}]}],
+                "generationConfig": {"maxOutputTokens": max_tokens},
+            },
+            timeout=120,
+        )
+        if resp.status_code == 200:
+            return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+        _err_log.warning(f"Gemini API {resp.status_code}: {resp.text[:200]}")
+
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         raise RuntimeError("ANTHROPIC_API_KEY 미설정 — 위원회 파이프라인 비활성화")
-    import httpx
     resp = httpx.post(
         "https://api.anthropic.com/v1/messages",
         headers={
