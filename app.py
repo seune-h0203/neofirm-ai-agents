@@ -94,12 +94,33 @@ _executor = ThreadPoolExecutor(max_workers=4)
 
 
 def _claude_fallback(question: str) -> str:
-    """NLM 없을 때 Claude API로 직접 생성."""
+    """NLM 없을 때 Gemini → Claude 순서로 시도."""
+    import httpx
+
+    gemini_key = os.environ.get("GEMINI_API_KEY", "")
+    if gemini_key:
+        try:
+            resp = httpx.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={gemini_key}",
+                headers={"content-type": "application/json"},
+                json={
+                    "contents": [{"parts": [{"text": question}]}],
+                    "generationConfig": {"maxOutputTokens": 1024},
+                },
+                timeout=60,
+            )
+            if resp.status_code == 200:
+                parts = resp.json()["candidates"][0]["content"]["parts"]
+                text = next((p["text"] for p in parts if "text" in p), "")
+                if text:
+                    return text.strip()
+        except Exception as e:
+            _err_log.warning(f"Gemini fallback 실패: {e}")
+
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
-        raise RuntimeError("NotebookLM CLI를 찾을 수 없고 ANTHROPIC_API_KEY도 없습니다.")
+        raise RuntimeError("NotebookLM CLI를 찾을 수 없고 GEMINI_API_KEY도 ANTHROPIC_API_KEY도 없습니다.")
     try:
-        import httpx
         resp = httpx.post(
             "https://api.anthropic.com/v1/messages",
             headers={
@@ -377,7 +398,10 @@ def _committee_call_claude(sys_prompt: str, user_msg: str,
             timeout=120,
         )
         if resp.status_code == 200:
-            return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+            parts = resp.json()["candidates"][0]["content"]["parts"]
+            text = next((p["text"] for p in parts if "text" in p), "")
+            if text:
+                return text.strip()
         _err_log.warning(f"Gemini API {resp.status_code}: {resp.text[:200]}")
 
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
