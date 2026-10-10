@@ -740,7 +740,7 @@ def _build_pptx(sector: str, results: dict, ts: str) -> Path:
     _add_rect(slide, 0, 0, 13.33, 7.5, NAVY)
     _add_textbox(slide, "NeoFirm 과제 자동 생성 보고서", 1, 1.8, 11.33, 1.2, 36, True, WHITE, align=PP_ALIGN.CENTER)
     _add_textbox(slide, f"전문서비스 영역: {sector}", 1, 3.1, 11.33, 0.8, 22, False, ACCENT, align=PP_ALIGN.CENTER)
-    _add_textbox(slide, f"생성일시: {ts}  |  Powered by NotebookLM + Claude Code", 1, 4.2, 11.33, 0.6, 14, False, WHITE, align=PP_ALIGN.CENTER)
+    _add_textbox(slide, f"생성일시: {ts}  |  NeoFirm AI 분석 시스템", 1, 4.2, 11.33, 0.6, 14, False, WHITE, align=PP_ALIGN.CENTER)
 
     # ── Content slides ──────────────────────────────────────────────────
     for key, info in QUERIES.items():
@@ -764,16 +764,25 @@ def _build_pptx(sector: str, results: dict, ts: str) -> Path:
     slide = prs.slides.add_slide(blank_layout)
     _add_rect(slide, 0, 0, 13.33, 1.1, NAVY)
     _add_textbox(slide, "전체 요약 및 Next Steps", 0.3, 0.15, 12.0, 0.8, 22, True, WHITE)
-    summary_lines = [
-        f"영역: {sector}",
-        "",
-        "✓ A. 기존 가치사슬 해부 — 공급자 매출구조·고객 불만 포인트 식별",
-        "✓ B. AI-전문가 작업 배분 — 자동화/보조/전담/금지 4분류",
-        "✓ C. 1페이지 투자메모 — 시장규모·가격구조·독점데이터 설계",
-        "✓ D. 문제정의문 — 타깃 고객·핵심 가치제안·KPI 3종",
-        "",
-        "Next: 프로토타입 설계 → MVP 개발 → 초기 고객 인터뷰",
-    ]
+
+    def _extract_first_line(text: str, max_len: int = 80) -> str:
+        import re
+        for line in text.splitlines():
+            line = re.sub(r"[#*`|>_~\[\]]+", "", line).strip()
+            line = re.sub(r"\s+", " ", line)
+            if len(line) > 10:
+                return line[:max_len] + ("…" if len(line) > max_len else "")
+        return ""
+
+    key_labels = {"A": "가치사슬 해부", "B": "AI-전문가 작업 배분", "C": "1페이지 투자메모", "D": "문제정의문"}
+    summary_lines = [f"영역: {sector}", ""]
+    for key in ["A", "B", "C", "D"]:
+        if key in results:
+            snippet = _extract_first_line(results[key])
+            summary_lines.append(f"✓ {key}. {key_labels[key]} — {snippet}")
+        else:
+            summary_lines.append(f"✗ {key}. {key_labels[key]} — 생성 실패")
+    summary_lines += ["", f"Next: {sector} 프로토타입 설계 → MVP 개발 → 초기 고객 검증"]
     _add_textbox(slide, "\n".join(summary_lines), 0.4, 1.3, 12.5, 5.5, 14, False, RGBColor(0x1a, 0x1a, 0x1a))
 
     safe_sector = "".join(c if c.isalnum() or c in "-_ " else "_" for c in sector)[:30]
