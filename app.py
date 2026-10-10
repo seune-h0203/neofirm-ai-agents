@@ -177,7 +177,8 @@ def _run_nlm_sync(question: str) -> str:
     if result.returncode != 0:
         msg = stdout_text.strip() or stderr_text or f"nlm exited with code {result.returncode}"
         _err_log.error(f"nlm failed rc={result.returncode}: {msg[:300]}")
-        raise RuntimeError(msg)
+        _err_log.warning("nlm 실패 — Gemini fallback 시도")
+        return _claude_fallback(question)
 
     answer = stdout_text.strip()
     for sep in ("\nSources:", "\n\nSources:", "\nConversation ID:", "\n\nConversation ID:"):
@@ -187,7 +188,8 @@ def _run_nlm_sync(question: str) -> str:
             break
 
     if not answer:
-        raise RuntimeError("nlm이 빈 응답을 반환했습니다")
+        _err_log.warning("nlm 빈 응답 — Gemini fallback 시도")
+        return _claude_fallback(question)
 
     return answer
 
