@@ -175,6 +175,10 @@ def _run_nlm_sync(question: str) -> str:
             answer = answer[:idx].strip()
             break
 
+    # 출력이 아예 Conversation ID로 시작하면 실제 답변 없음
+    if answer.startswith("Conversation ID:") or answer.startswith("Use --conversation-id"):
+        answer = ""
+
     if not answer:
         _err_log.warning("nlm 빈 응답 — Gemini fallback 시도")
         return _claude_fallback(question)
