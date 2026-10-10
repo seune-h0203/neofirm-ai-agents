@@ -1274,6 +1274,22 @@ function handleEvent(ev) {
     document.getElementById(`panel-${ev.key}`).innerHTML =
       `<div class="placeholder" style="color:var(--err)"><div class="placeholder-icon">⚠</div><p>${ev.message}</p></div>`;
     showToast(`${ev.key} 생성 오류: ${ev.message}`, true);
+  } else if (ev.type === 'committee_start') {
+    const badge = document.getElementById('finalDecisionBadge');
+    badge.textContent = '위원회 분석 중…';
+    badge.className = 'badge-pill badge-none';
+    document.getElementById('committeeSubtitle').textContent = '3개 리뷰어 평가 + 최종 결정 생성 중…';
+  } else if (ev.type === 'committee_done') {
+    const dec = (ev.decision || 'HOLD').toUpperCase();
+    const badge = document.getElementById('finalDecisionBadge');
+    badge.textContent = dec;
+    badge.className = `badge-pill badge-${dec.toLowerCase()}`;
+    document.getElementById('committeeSubtitle').textContent = 'NeoFirm 워크스페이스';
+    showToast(`AI 투자위원회 결정: ${dec} ✓`);
+    loadWorkspace();
+  } else if (ev.type === 'committee_error') {
+    document.getElementById('committeeSubtitle').textContent = '위원회 분석 실패';
+    showToast(`위원회 오류: ${ev.message}`, true);
   } else if (ev.type === 'done') {
     renderAll();
     const allTab = tabBar.querySelector('[data-tab="all"]');

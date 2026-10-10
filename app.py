@@ -321,6 +321,18 @@ async def generate(req: GenerateRequest):
                 _err_log.error(f"PPTX generation failed: {e}\n{traceback.format_exc()}")
                 yield f"data: {json.dumps({'type': 'pptx_error', 'message': str(e)}, ensure_ascii=False)}\n\n"
 
+        # ── AI 투자위원회 파이프라인 ──────────────────────────────
+        if results:
+            yield f"data: {json.dumps({'type': 'committee_start'}, ensure_ascii=False)}\n\n"
+            try:
+                committee_result = await asyncio.get_event_loop().run_in_executor(
+                    _executor, _run_committee_sync, sector, results
+                )
+                yield f"data: {json.dumps({'type': 'committee_done', **committee_result}, ensure_ascii=False)}\n\n"
+            except Exception as e:
+                _err_log.error(f"Committee pipeline failed: {e}\n{traceback.format_exc()}")
+                yield f"data: {json.dumps({'type': 'committee_error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+
         yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
@@ -328,6 +340,237 @@ async def generate(req: GenerateRequest):
         media_type="text/event-stream; charset=utf-8",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Committee Pipeline helpers
+# ---------------------------------------------------------------------------
+
+def _committee_call_claude(sys_prompt: str, user_msg: str,
+                            model: str = "claude-haiku-4-5-20251001",
+                            max_tokens: int = 2048) -> str:
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY 미설정 — 위원회 파이프라인 비활성화")
+    import httpx
+    resp = httpx.post(
+        "https://api.anthropic.com/v1/messages",
+        headers={
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        },
+        json={
+            "model": model,
+            "max_tokens": max_tokens,
+            "system": sys_prompt,
+            "messages": [{"role": "user", "content": user_msg}],
+        },
+        timeout=120,
+    )
+    resp.raise_for_status()
+    return resp.json()["content"][0]["text"].strip()
+
+
+def _committee_extract_score(text: str) -> dict:
+    import re
+    CRITERIA = [
+        "problem_severity", "customer_evidence", "market_opportunity",
+        "differentiation", "technical_feasibility", "execution_feasibility",
+        "business_model", "scalability", "risk", "evidence_quality",
+    ]
+    scores = {}
+    for crit in CRITERIA:
+        display = crit.replace("_", " ")
+        for pat in [
+            rf"\|\s*{re.escape(display)}\s*\|\s*(\d)\s*\|",
+            rf"\|\s*{re.escape(crit)}\s*\|\s*(\d)\s*\|",
+            rf"{re.escape(crit)}\s*[:|]\s*(\d)",
+            rf"{re.escape(display)}\s*[:|]\s*(\d)",
+        ]:
+            m = re.search(pat, text, re.IGNORECASE)
+            if m and 1 <= int(m.group(1)) <= 5:
+                scores[crit] = int(m.group(1))
+                break
+    return scores
+
+
+def _committee_extract_decision(text: str) -> str:
+    import re
+    for pat in [
+        r"\*\*Decision:\*\*\s*(INVEST|HOLD|PASS)",
+        r"Provisional Decision:\s*\*?\*?(INVEST|HOLD|PASS)",
+        r"\*\*(INVEST|HOLD|PASS)\*\*",
+        r"\b(INVEST|HOLD|PASS)\b",
+    ]:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            return m.group(1).upper()
+    return "HOLD"
+
+
+def _committee_bullets(text: str, n: int = 6) -> list:
+    import re
+    out = []
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line or line.startswith("#") or "|" in line or line.startswith("---"):
+            continue
+        line = re.sub(r"^[-•*▸]\s*", "", line).strip()
+        line = re.sub(r"^\d+\.\s*", "", line).strip()
+        line = re.sub(r"\*\*(.+?)\*\*", r"\1", line)
+        if len(line) > 10:
+            out.append(line)
+        if len(out) >= n:
+            break
+    return out
+
+
+def _run_committee_sync(sector: str, results: dict) -> dict:
+    """
+    Full AI investment committee pipeline.
+    Runs synchronously in a thread pool.
+    Returns dict with: decision, pptx_filename, investment_memo (preview).
+    """
+    from concurrent.futures import ThreadPoolExecutor as _TPE
+
+    # Build research context from A/B/C/D outputs
+    research = f"# 연구 대상\n전문서비스 영역: **{sector}**\n\n"
+    for key, info in QUERIES.items():
+        if key in results:
+            research += f"## {info['title']}\n\n{results[key]}\n\n---\n\n"
+
+    # Load reviewer prompts
+    cfg = json.loads(
+        (BASE_DIR / "task2_neofirm" / "agents" / "reviewers.json").read_text(encoding="utf-8")
+    )
+    user_msg = f"## Research Material\n\n{research}"
+
+    # Step 1: 3 reviewers in parallel
+    with _TPE(max_workers=3) as pool:
+        futs = {
+            "market":     pool.submit(_committee_call_claude, cfg["market_reviewer"]["prompt"], user_msg),
+            "technology": pool.submit(_committee_call_claude, cfg["technology_reviewer"]["prompt"], user_msg),
+            "business":   pool.submit(_committee_call_claude, cfg["business_reviewer"]["prompt"], user_msg),
+        }
+        reviews = {name: fut.result() for name, fut in futs.items()}
+
+    rev_dir = WORKSPACE_DIR / "reviews"
+    rev_dir.mkdir(parents=True, exist_ok=True)
+    for name, text in reviews.items():
+        (rev_dir / f"{name}_review.md").write_text(text, encoding="utf-8")
+
+    # Step 2: Scores & decisions
+    scores    = {n: _committee_extract_score(t)    for n, t in reviews.items()}
+    decisions = {n: _committee_extract_decision(t) for n, t in reviews.items()}
+
+    # Step 3: Disagreements
+    disagree = []
+    if len(set(decisions.values())) > 1:
+        disagree.append({
+            "id": "D00", "type": "decision",
+            "issue": "Reviewers reached different final decisions",
+            "reviewer_positions": decisions, "severity": "HIGH",
+            "why_it_matters": "Split decision requires committee deliberation.",
+        })
+
+    comm_dir = WORKSPACE_DIR / "committee"
+    comm_dir.mkdir(exist_ok=True)
+    (comm_dir / "disagreements.json").write_text(
+        json.dumps({
+            "decisions": decisions, "scores": scores,
+            "disagreements": disagree,
+            "needs_committee_discussion": bool(disagree),
+        }, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    # Step 4: Committee discussion (only if disagreements exist)
+    discussion = ""
+    if disagree:
+        disc_sys = (
+            "당신은 NeoFirm AI 투자위원회 사회자입니다. "
+            "세 리뷰어 보고서와 이견 목록을 바탕으로 위원회 토론을 한국어 마크다운으로 작성하세요. "
+            "각 이견의 해소 여부(RESOLVED / PARTIALLY RESOLVED / UNRESOLVED)를 명시하세요."
+        )
+        disc_user = (
+            f"## 섹터\n{sector}\n\n"
+            f"## 시장 리뷰\n{reviews['market'][:1500]}\n\n"
+            f"## 기술 리뷰\n{reviews['technology'][:1500]}\n\n"
+            f"## 사업 리뷰\n{reviews['business'][:1500]}\n\n"
+            f"## 이견\n{json.dumps(disagree, ensure_ascii=False)}"
+        )
+        discussion = _committee_call_claude(disc_sys, disc_user)
+        (comm_dir / "discussion.md").write_text(discussion, encoding="utf-8")
+
+        resolution = _committee_call_claude(
+            "위원회 토론을 간략히 요약하고 이견 해소 결과를 정리하세요. 한국어, 마크다운.",
+            discussion,
+        )
+        (comm_dir / "resolution.md").write_text(resolution, encoding="utf-8")
+
+    # Step 5: Final decision
+    dec_user = (
+        f"## Sector\n{sector}\n\n"
+        f"## Market Review\n{reviews['market'][:1500]}\n\n"
+        f"## Technology Review\n{reviews['technology'][:1500]}\n\n"
+        f"## Business Review\n{reviews['business'][:1500]}\n\n"
+        f"## Committee Discussion\n{discussion[:1000]}"
+    )
+    memo = _committee_call_claude(
+        cfg["decision_maker"]["prompt"], dec_user,
+        model="claude-sonnet-4-5", max_tokens=3000,
+    )
+    dec_dir = WORKSPACE_DIR / "decision"
+    dec_dir.mkdir(exist_ok=True)
+    (dec_dir / "investment_memo.md").write_text(memo, encoding="utf-8")
+
+    final_decision = _committee_extract_decision(memo)
+
+    # Step 6: Build slides_data.json
+    slides = []
+    label_map = {"A": f"NeoFirm × {sector}", "B": "AI-전문가 작업 배분", "C": "1페이지 투자메모", "D": "문제정의문"}
+    for key in ["A", "B", "C", "D"]:
+        if key in results:
+            slides.append({"title": label_map[key], "key_points": _committee_bullets(results[key]), "badge": ""})
+    for rev_name, rev_title in [("market", "시장성 리뷰"), ("technology", "기술성 리뷰"), ("business", "사업성 리뷰")]:
+        slides.append({"title": rev_title, "key_points": _committee_bullets(reviews[rev_name]), "badge": ""})
+    slides.append({"title": f"최종 결정: {final_decision}", "key_points": _committee_bullets(memo), "badge": final_decision})
+
+    slides_data = {
+        "title": "NeoFirm AI Investment Committee",
+        "sector": sector,
+        "decision": final_decision,
+        "scores_by_reviewer": scores,
+        "decisions_by_reviewer": decisions,
+        "slides": slides,
+    }
+
+    pres_dir = WORKSPACE_DIR / "presentation"
+    pres_dir.mkdir(exist_ok=True)
+    (pres_dir / "slides_data.json").write_text(
+        json.dumps(slides_data, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    # Step 7: Render PPTX via pptx_renderer
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "pptx_renderer",
+        str(BASE_DIR / "task2_neofirm" / "scripts" / "pptx_renderer.py"),
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M")
+    safe = "".join(c if c.isalnum() or c in "-_ " else "_" for c in sector)[:30]
+    pptx_path = pres_dir / f"final_{safe}_{ts}.pptx"
+    mod.render(slides_data, pptx_path)
+
+    return {
+        "decision": final_decision,
+        "pptx_filename": pptx_path.name,
+        "memo_preview": memo[:300],
+    }
 
 
 @app.get("/api/workspace")
