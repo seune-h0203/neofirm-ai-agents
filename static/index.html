@@ -1378,6 +1378,16 @@ function decisionClass(d) {
 }
 
 function renderWorkspace(data) {
+  // empty state — no reviews yet (first run)
+  const hasData = data.sector || data.reviews?.market || data.investment_memo;
+  if (!hasData) {
+    const badge = document.getElementById('finalDecisionBadge');
+    badge.textContent = '대기 중';
+    badge.className = 'badge-pill badge-none';
+    document.getElementById('committeeSubtitle').textContent = '분야 입력 후 자동 실행됩니다';
+    return;
+  }
+
   // reviewer summary cards
   const decisions = data.disagreements?.decisions || {};
   const summary = document.getElementById('reviewerSummary');
@@ -1455,10 +1465,13 @@ function renderWorkspace(data) {
   document.getElementById('final-loading').style.display = 'none';
   document.getElementById('final-content').style.display = 'block';
 
-  // header badge
+  // header badge + sector subtitle
   const badge = document.getElementById('finalDecisionBadge');
   badge.textContent = dec;
   badge.className = `badge-pill badge-${decisionClass(dec)}`;
+  if (data.sector) {
+    document.getElementById('committeeSubtitle').textContent = `마지막 분석: ${data.sector}`;
+  }
 
   // PPT filename + show download btn
   if (data.pptx_filename) {

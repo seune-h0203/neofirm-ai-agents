@@ -596,7 +596,21 @@ async def workspace():
     except Exception:
         disagreements = {}
 
+    # sector + decision from slides_data.json
+    sector = ""
+    slides_decision = ""
+    slides_json_path = WORKSPACE_DIR / "presentation" / "slides_data.json"
+    if slides_json_path.exists():
+        try:
+            slides_data = json.loads(slides_json_path.read_text(encoding="utf-8"))
+            sector = slides_data.get("sector", "")
+            slides_decision = slides_data.get("decision", "")
+        except Exception:
+            pass
+
     return {
+        "sector":              sector,
+        "slides_decision":     slides_decision,
         "reviews": {
             "market":     read("reviews/market_review.md"),
             "technology": read("reviews/technology_review.md"),
