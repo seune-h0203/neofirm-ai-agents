@@ -21,31 +21,33 @@ except ImportError:
     print("ERROR: python-pptx not installed. Run: pip install python-pptx", file=sys.stderr)
     sys.exit(1)
 
-# Colour palette — dark investment-grade theme
-BG_DARK   = RGBColor(0x0D, 0x1B, 0x2A)
-ACCENT    = RGBColor(0x00, 0xB4, 0xD8)
-GOLD      = RGBColor(0xFF, 0xC3, 0x00)
-WHITE     = RGBColor(0xFF, 0xFF, 0xFF)
-GRAY      = RGBColor(0xAA, 0xAA, 0xBB)
-RED       = RGBColor(0xFF, 0x4D, 0x4D)
-GREEN     = RGBColor(0x4D, 0xFF, 0x91)
+# Colour palette — light consulting theme
+BG_WHITE  = RGBColor(0xFF, 0xFF, 0xFF)   # white background
+BG_SOFT   = RGBColor(0xF8, 0xF8, 0xF8)  # table header / soft surface (near-white)
+ACCENT    = RGBColor(0x5B, 0x6C, 0xFF)  # blue #5B6CFF
+FG_DARK   = RGBColor(0x17, 0x17, 0x17)  # main text
+FG_MID    = RGBColor(0x69, 0x73, 0x86)  # secondary text
+DIVIDER   = RGBColor(0xE0, 0xE2, 0xE8)  # rule / border
+GOLD      = RGBColor(0xB4, 0x53, 0x09)  # amber (HOLD)
+GREEN     = RGBColor(0x05, 0x96, 0x69)  # green (INVEST)
+RED       = RGBColor(0x99, 0x1B, 0x1B)  # red (PASS)
 SLIDE_W   = Inches(13.33)
 SLIDE_H   = Inches(7.5)
 
 DECISION_COLOR = {
     "INVEST": GREEN,
-    "HOLD": GOLD,
-    "PASS": RED,
+    "HOLD":   GOLD,
+    "PASS":   RED,
 }
 
 
-def _bg(slide, color=BG_DARK):
+def _bg(slide, color=BG_WHITE):
     slide.background.fill.solid()
     slide.background.fill.fore_color.rgb = color
 
 
 def _box(slide, text, left, top, w, h,
-         size=18, bold=False, color=WHITE,
+         size=18, bold=False, color=FG_DARK,
          align=PP_ALIGN.LEFT, wrap=True):
     txb = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(w), Inches(h))
     tf = txb.text_frame
@@ -59,8 +61,8 @@ def _box(slide, text, left, top, w, h,
     run.font.color.rgb = color
 
 
-def _rule(slide, top, color=ACCENT):
-    shape = slide.shapes.add_shape(1, Inches(0.5), Inches(top), Inches(12.33), Inches(0.04))
+def _rule(slide, top, color=DIVIDER):
+    shape = slide.shapes.add_shape(1, Inches(0.5), Inches(top), Inches(12.33), Inches(0.02))
     shape.fill.solid()
     shape.fill.fore_color.rgb = color
     shape.line.fill.background()
@@ -69,21 +71,21 @@ def _rule(slide, top, color=ACCENT):
 def _title_slide(prs, title, subtitle, sector, decision):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     _bg(slide)
-    _box(slide, "NeoFirm", 0.5, 0.8, 12.33, 1.4,
-         size=52, bold=True, color=ACCENT, align=PP_ALIGN.CENTER)
-    _box(slide, "AI Investment Committee", 0.5, 2.3, 12.33, 0.7,
-         size=26, color=WHITE, align=PP_ALIGN.CENTER)
-    _rule(slide, 3.2)
-    _box(slide, title, 0.5, 3.4, 12.33, 0.8,
-         size=22, color=WHITE, align=PP_ALIGN.CENTER)
-    _box(slide, f"Sector: {sector}", 0.5, 4.3, 12.33, 0.6,
-         size=18, color=GRAY, align=PP_ALIGN.CENTER)
+    _box(slide, "NeoFirm", 0.5, 0.9, 12.33, 1.2,
+         size=48, bold=True, color=ACCENT, align=PP_ALIGN.CENTER)
+    _box(slide, "AI 투자 위원회", 0.5, 2.2, 12.33, 0.7,
+         size=22, color=FG_MID, align=PP_ALIGN.CENTER)
+    _rule(slide, 3.1)
+    _box(slide, title, 0.5, 3.3, 12.33, 0.8,
+         size=22, bold=True, color=FG_DARK, align=PP_ALIGN.CENTER)
+    _box(slide, f"분야: {sector}", 0.5, 4.2, 12.33, 0.6,
+         size=16, color=FG_MID, align=PP_ALIGN.CENTER)
     if decision:
-        dc = DECISION_COLOR.get(decision.upper(), WHITE)
-        _box(slide, f"● {decision}", 0.5, 5.1, 12.33, 0.8,
-             size=28, bold=True, color=dc, align=PP_ALIGN.CENTER)
+        dc = DECISION_COLOR.get(decision.upper(), FG_DARK)
+        _box(slide, decision, 0.5, 5.0, 12.33, 0.9,
+             size=32, bold=True, color=dc, align=PP_ALIGN.CENTER)
     _box(slide, datetime.now().strftime("%Y-%m-%d"), 0.5, 6.5, 12.33, 0.5,
-         size=14, color=GRAY, align=PP_ALIGN.CENTER)
+         size=13, color=FG_MID, align=PP_ALIGN.CENTER)
 
 
 def _content_slide(prs, title, points, body="", badge=""):
@@ -92,51 +94,61 @@ def _content_slide(prs, title, points, body="", badge=""):
     if badge:
         bc = DECISION_COLOR.get(badge.upper(), ACCENT)
         _box(slide, badge, 10.5, 0.25, 2.3, 0.55,
-             size=16, bold=True, color=bc, align=PP_ALIGN.CENTER)
+             size=15, bold=True, color=bc, align=PP_ALIGN.CENTER)
     _box(slide, title, 0.5, 0.3, 9.8, 0.75,
-         size=28, bold=True, color=ACCENT)
+         size=26, bold=True, color=ACCENT)
     _rule(slide, 1.15)
     y = 1.35
     for pt in points[:8]:
-        _box(slide, f"• {pt}", 0.7, y, 11.7, 0.6, size=17, color=WHITE)
-        y += 0.62
+        _box(slide, f"• {pt}", 0.7, y, 11.7, 0.6, size=16, color=FG_DARK)
+        y += 0.60
     if body:
         _box(slide, body[:400], 0.7, max(y + 0.1, 5.4), 11.7, 1.3,
-             size=14, color=GRAY)
+             size=13, color=FG_MID)
 
 
 def _scorecard_slide(prs, scores_by_reviewer, decisions):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     _bg(slide)
-    _box(slide, "Reviewer Scorecard", 0.5, 0.3, 12, 0.75,
-         size=28, bold=True, color=ACCENT)
+    _box(slide, "리뷰어 평가표 (Reviewer Scorecard)", 0.5, 0.3, 12, 0.75,
+         size=26, bold=True, color=ACCENT)
     _rule(slide, 1.15)
     reviewers = list(scores_by_reviewer.keys())
     col_w = 3.5
+    # Header row background
+    from pptx.util import Inches as _In
+    hdr_bg = slide.shapes.add_shape(1, _In(0.5), _In(1.22), _In(12.33), _In(0.48))
+    hdr_bg.fill.solid(); hdr_bg.fill.fore_color.rgb = BG_SOFT
+    hdr_bg.line.fill.background()
     # Headers
-    _box(slide, "Criterion", 0.5, 1.25, 3.0, 0.45, size=14, bold=True, color=GRAY)
+    _box(slide, "평가 기준", 0.5, 1.25, 3.0, 0.45, size=13, bold=True, color=FG_MID)
     for i, rv in enumerate(reviewers):
-        _box(slide, rv.upper(), 3.6 + i * col_w, 1.25, col_w - 0.1, 0.45,
-             size=14, bold=True, color=ACCENT, align=PP_ALIGN.CENTER)
+        label = {"market": "시장성", "technology": "기술성", "business": "사업성"}.get(rv.lower(), rv.upper())
+        _box(slide, label, 3.6 + i * col_w, 1.25, col_w - 0.1, 0.45,
+             size=13, bold=True, color=ACCENT, align=PP_ALIGN.CENTER)
     _rule(slide, 1.75)
     # Scores
     criteria = sorted({c for rv in scores_by_reviewer.values() for c in rv})
     y = 1.85
-    for crit in criteria[:8]:
-        _box(slide, crit.replace("_", " ").title(), 0.5, y, 3.0, 0.5, size=13, color=WHITE)
+    for idx, crit in enumerate(criteria[:8]):
+        _box(slide, crit.replace("_", " ").title(), 0.5, y, 3.0, 0.5, size=13, color=FG_DARK)
         for i, rv in enumerate(reviewers):
             val = scores_by_reviewer[rv].get(crit, "—")
             _box(slide, str(val), 3.6 + i * col_w, y, col_w - 0.1, 0.5,
-                 size=13, color=WHITE, align=PP_ALIGN.CENTER)
-        y += 0.52
-    # Decisions
-    _rule(slide, y + 0.1)
-    _box(slide, "DECISION", 0.5, y + 0.2, 3.0, 0.55, size=15, bold=True, color=GOLD)
+                 size=13, color=FG_DARK, align=PP_ALIGN.CENTER)
+        _rule(slide, y + 0.48)
+        y += 0.50
+    # Decision row
+    _rule(slide, y + 0.08)
+    dec_bg = slide.shapes.add_shape(1, _In(0.5), _In(y + 0.12), _In(12.33), _In(0.55))
+    dec_bg.fill.solid(); dec_bg.fill.fore_color.rgb = BG_SOFT
+    dec_bg.line.fill.background()
+    _box(slide, "최종 판단", 0.5, y + 0.18, 3.0, 0.55, size=14, bold=True, color=FG_MID)
     for i, rv in enumerate(reviewers):
         dec = decisions.get(rv, "—").upper()
-        dc = DECISION_COLOR.get(dec, WHITE)
-        _box(slide, dec, 3.6 + i * col_w, y + 0.2, col_w - 0.1, 0.55,
-             size=15, bold=True, color=dc, align=PP_ALIGN.CENTER)
+        dc = DECISION_COLOR.get(dec, FG_DARK)
+        _box(slide, dec, 3.6 + i * col_w, y + 0.18, col_w - 0.1, 0.55,
+             size=14, bold=True, color=dc, align=PP_ALIGN.CENTER)
 
 
 def render(data: dict, out_path: Path) -> Path:

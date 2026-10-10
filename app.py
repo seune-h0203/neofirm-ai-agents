@@ -15,6 +15,7 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
@@ -25,6 +26,7 @@ BASE_DIR = Path(__file__).parent
 OUTPUT_DIR = BASE_DIR / "output"
 STATIC_DIR = BASE_DIR / "static"
 LOGS_DIR = BASE_DIR / "logs"
+WORKSPACE_DIR = BASE_DIR / "task2_neofirm" / "workspace"
 NOTEBOOK_ID = "6b8429e2-cc08-466e-b785-ee6c0795112f"
 
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -325,6 +327,60 @@ async def generate(req: GenerateRequest):
         stream(),
         media_type="text/event-stream; charset=utf-8",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/api/workspace")
+async def workspace():
+    """Return all Task 2 pipeline artifacts as JSON."""
+    def read(rel: str) -> str:
+        p = WORKSPACE_DIR / rel
+        if p.exists():
+            return p.read_text(encoding="utf-8")
+        return ""
+
+    # find latest PPTX in workspace/presentation/
+    pptx_file = None
+    pptx_dir = WORKSPACE_DIR / "presentation"
+    if pptx_dir.exists():
+        pptxs = sorted(pptx_dir.glob("*.pptx"), key=lambda f: f.stat().st_mtime, reverse=True)
+        if pptxs:
+            pptx_file = pptxs[0].name
+
+    disagreements_raw = read("committee/disagreements.json")
+    try:
+        disagreements = json.loads(disagreements_raw) if disagreements_raw else {}
+    except Exception:
+        disagreements = {}
+
+    return {
+        "reviews": {
+            "market":     read("reviews/market_review.md"),
+            "technology": read("reviews/technology_review.md"),
+            "business":   read("reviews/business_review.md"),
+        },
+        "disagreements":       disagreements,
+        "committee_discussion": read("committee/discussion.md"),
+        "resolution":          read("committee/resolution.md"),
+        "investment_memo":     read("decision/investment_memo.md"),
+        "pptx_filename":       pptx_file,
+    }
+
+
+@app.get("/api/workspace/download")
+async def workspace_download():
+    """Download the latest Task 2 PPTX."""
+    pptx_dir = WORKSPACE_DIR / "presentation"
+    if not pptx_dir.exists():
+        raise HTTPException(404, "워크스페이스 PPTX 없음")
+    pptxs = sorted(pptx_dir.glob("*.pptx"), key=lambda f: f.stat().st_mtime, reverse=True)
+    if not pptxs:
+        raise HTTPException(404, "PPTX 파일 없음")
+    path = pptxs[0]
+    return FileResponse(
+        path,
+        filename="neofirm_report.pptx",
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
     )
 
 
