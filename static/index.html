@@ -307,6 +307,7 @@ body::after {
 .tool-icon img { width: 100%; height: 100%; object-fit: contain; border-radius: 10px; }
 .tool-icon-nb { background: #ecfdf5; }
 .tool-icon-cc { background: var(--accent-soft); }
+.tool-icon-gemini { background: linear-gradient(135deg, #e8f0fe, #f3e8fd); }
 .tool-icon-nf { background: transparent; }
 .tool-chip {
   display: inline-block;
@@ -815,7 +816,7 @@ body::after {
     <img src="/static/logo.png" alt="NeoFirm Automation Lab" style="height:36px;width:auto;display:block;">
   </a>
   <div class="header-right">
-    <span class="header-tag">Claude Code × NotebookLM</span>
+    <span class="header-tag">Gemini × NotebookLM</span>
     <button class="theme-btn" id="themeBtn" title="테마 전환" aria-label="테마 전환">☀</button>
   </div>
 </header>
@@ -826,7 +827,7 @@ body::after {
   <section class="hero">
     <div class="hero-eyebrow">AI 자동화 프로젝트</div>
     <h1>NeoFirm <span class="accent">Automation</span> Lab</h1>
-    <p class="hero-sub">NotebookLM이 조사하고,<br>Claude Code가 분석·토론합니다.</p>
+    <p class="hero-sub">NotebookLM이 조사하고,<br>Gemini가 분석·평가·토론합니다.</p>
   </section>
 
   <!-- 3-stage tool flow (static visual) -->
@@ -853,9 +854,9 @@ body::after {
         </svg>
       </div>
       <div class="tool-card">
-        <div class="tool-icon tool-icon-cc"><img src="/static/claude.png" alt="Claude Code"></div>
+        <div class="tool-icon tool-icon-gemini"><img src="/static/gemini.svg" alt="Gemini"></div>
         <span class="tool-chip">Step 2</span>
-        <div class="tool-name">Claude Code</div>
+        <div class="tool-name">Gemini</div>
         <div class="tool-sub">분석 · 평가 · 토론</div>
         <div class="tool-desc">3개 관점 독립 평가 · 쟁점 토론</div>
       </div>
