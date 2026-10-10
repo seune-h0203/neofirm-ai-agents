@@ -1274,6 +1274,21 @@ function handleEvent(ev) {
     document.getElementById(`panel-${ev.key}`).innerHTML =
       `<div class="placeholder" style="color:var(--err)"><div class="placeholder-icon">⚠</div><p>${ev.message}</p></div>`;
     showToast(`${ev.key} 생성 오류: ${ev.message}`, true);
+  } else if (ev.type === 'workspace_clear') {
+    // Reset committee panel to blank state before new run
+    const badge = document.getElementById('finalDecisionBadge');
+    badge.textContent = '대기 중';
+    badge.className = 'badge-pill badge-none';
+    document.getElementById('committeeSubtitle').textContent = '분석 준비 중…';
+    ['reviewerSummary'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
+    ['market','technology','business'].forEach(k => { const el = document.getElementById(`rtab-${k}`); if (el) el.innerHTML = ''; });
+    ['disagree-content','discussion-md','resolution-md','fdMemo'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
+    ['reviewers-loading','disagree-loading','discussion-loading','resolution-loading','final-loading'].forEach(id => {
+      const el = document.getElementById(id); if (el) { el.style.display = 'block'; el.textContent = '생성 대기 중…'; }
+    });
+    ['reviewers-content','disagree-content','discussion-content','resolution-content','final-content'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.style.display = 'none';
+    });
   } else if (ev.type === 'committee_start') {
     const badge = document.getElementById('finalDecisionBadge');
     badge.textContent = '위원회 분석 중…';

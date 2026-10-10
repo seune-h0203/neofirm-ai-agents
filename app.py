@@ -272,6 +272,13 @@ async def generate(req: GenerateRequest):
     results: dict = {}
 
     async def stream():
+        # Clear previous workspace data so committee panel starts fresh
+        for sub in ["reviews", "committee", "decision", "presentation", "research", "criteria", "logs"]:
+            p = WORKSPACE_DIR / sub
+            if p.exists():
+                import shutil as _ws_shutil
+                _ws_shutil.rmtree(p, ignore_errors=True)
+        yield f"data: {json.dumps({'type': 'workspace_clear'}, ensure_ascii=False)}\n\n"
         yield f"data: {json.dumps({'type': 'start', 'sector': sector}, ensure_ascii=False)}\n\n"
 
         for key, info in QUERIES.items():
