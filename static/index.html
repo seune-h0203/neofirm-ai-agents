@@ -827,7 +827,6 @@ body::after {
     <div class="hero-eyebrow">AI 자동화 프로젝트</div>
     <h1>NeoFirm <span class="accent">Automation</span> Lab</h1>
     <p class="hero-sub">NotebookLM이 조사하고,<br>Claude Code가 분석·토론합니다.</p>
-    <p class="hero-desc">NeoFirm 자료를 기반으로 AI Agent가 시장·기술·사업 관점에서 독립적으로 평가하고, 의견 충돌이 있는 쟁점만 토론한 뒤 최종 판단과 PPT를 생성합니다.</p>
   </section>
 
   <!-- 3-stage tool flow (static visual) -->
@@ -1251,9 +1250,30 @@ async function startGenerate() {
   }
 }
 
+function setWfStep(num, cls, statusText) {
+  const el = document.getElementById(`wf-${num}`);
+  if (!el) return;
+  el.classList.remove('run', 'done', 'error', 'skip');
+  if (cls) el.classList.add(cls);
+  const s = el.querySelector('.wf-status');
+  if (s) s.textContent = statusText || '—';
+}
+
 function handleEvent(ev) {
   if (ev.type === 'start') {
-    // nothing
+    setWfStep(1, 'run', '진행 중');
+  } else if (ev.type === 'pptx') {
+    setWfStep(1, 'done', '완료');
+    // store for research PPT download
+    if (ev.filename) window._researchPptx = ev.filename;
+  } else if (ev.type === 'committee_progress') {
+    const status = ev.status;
+    const cls = status === 'done' ? 'done' : status === 'skip' ? 'done' : status === 'run' ? 'run' : '';
+    const label = status === 'done' ? '완료' : status === 'skip' ? '생략' : '진행 중';
+    setWfStep(ev.wf_step, cls, label);
+    if (ev.message) {
+      document.getElementById('committeeSubtitle').textContent = ev.message;
+    }
   } else if (ev.type === 'progress') {
     setStep(ev.key, 'running', '생성 중…');
     switchTab(ev.key);
@@ -1291,9 +1311,10 @@ function handleEvent(ev) {
     });
   } else if (ev.type === 'committee_start') {
     const badge = document.getElementById('finalDecisionBadge');
-    badge.textContent = '위원회 분석 중…';
+    badge.textContent = '분석 중…';
     badge.className = 'badge-pill badge-none';
-    document.getElementById('committeeSubtitle').textContent = '3개 리뷰어 평가 + 최종 결정 생성 중…';
+    document.getElementById('committeeSubtitle').textContent = 'AI 투자위원회 분석 시작…';
+    for (let i = 2; i <= 6; i++) setWfStep(i, '', '—');
   } else if (ev.type === 'committee_done') {
     const dec = (ev.decision || 'HOLD').toUpperCase();
     const badge = document.getElementById('finalDecisionBadge');

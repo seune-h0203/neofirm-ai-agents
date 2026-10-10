@@ -351,12 +351,47 @@ async def generate(req: GenerateRequest):
 
         # ── AI 투자위원회 파이프라인 ──────────────────────────────
         if results:
+            def _cprog(wf_step: int, status: str, message: str) -> str:
+                return f"data: {json.dumps({'type': 'committee_progress', 'wf_step': wf_step, 'status': status, 'message': message}, ensure_ascii=False)}\n\n"
+
             yield f"data: {json.dumps({'type': 'committee_start'}, ensure_ascii=False)}\n\n"
+            loop = asyncio.get_event_loop()
             try:
-                committee_result = await asyncio.get_event_loop().run_in_executor(
-                    _executor, _run_committee_sync, sector, results
+                # Phase 1: 3 reviewers
+                yield _cprog(2, "run", "시장·기술·사업 리뷰어 독립 평가 중…")
+                reviews, scores, decisions, disagree, cfg = await loop.run_in_executor(
+                    _executor, _committee_phase1, sector, results
                 )
-                yield f"data: {json.dumps({'type': 'committee_done', **committee_result}, ensure_ascii=False)}\n\n"
+                yield _cprog(2, "done", "리뷰어 평가 완료")
+                yield _cprog(3, "done", f"이견 {len(disagree)}건 감지")
+
+                # Phase 2: Discussion
+                if disagree:
+                    yield _cprog(4, "run", "AI 위원회 토론 진행 중…")
+                    discussion, resolution = await loop.run_in_executor(
+                        _executor, _committee_phase2, sector, reviews, disagree, cfg
+                    )
+                    yield _cprog(4, "done", "AI 토론 완료")
+                else:
+                    discussion, resolution = "", ""
+                    yield _cprog(4, "skip", "이견 없음 — 토론 생략")
+
+                # Phase 3: Final decision
+                yield _cprog(5, "run", "최종 투자 판단 작성 중…")
+                memo, final_decision = await loop.run_in_executor(
+                    _executor, _committee_phase3, sector, reviews, discussion, cfg
+                )
+                yield _cprog(5, "done", f"최종 판단: {final_decision}")
+
+                # Phase 4: PPT
+                yield _cprog(6, "run", "위원회 PPT 생성 중…")
+                pptx_filename = await loop.run_in_executor(
+                    _executor, _committee_phase4, sector, results, reviews, scores, decisions, final_decision, memo
+                )
+                yield _cprog(6, "done", "위원회 PPT 완료")
+
+                yield f"data: {json.dumps({'type': 'committee_done', 'decision': final_decision, 'pptx_filename': pptx_filename, 'memo_preview': memo[:300]}, ensure_ascii=False)}\n\n"
+
             except Exception as e:
                 _err_log.error(f"Committee pipeline failed: {e}\n{traceback.format_exc()}")
                 yield f"data: {json.dumps({'type': 'committee_error', 'message': str(e)}, ensure_ascii=False)}\n\n"
@@ -466,27 +501,20 @@ def _committee_bullets(text: str, n: int = 6) -> list:
     return out
 
 
-def _run_committee_sync(sector: str, results: dict) -> dict:
-    """
-    Full AI investment committee pipeline.
-    Runs synchronously in a thread pool.
-    Returns dict with: decision, pptx_filename, investment_memo (preview).
-    """
+def _committee_phase1(sector: str, results: dict) -> tuple:
+    """Phase 1: 3 reviewers in parallel. Returns (reviews, scores, decisions, disagree, cfg)."""
     from concurrent.futures import ThreadPoolExecutor as _TPE
 
-    # Build research context from A/B/C/D outputs
     research = f"# 연구 대상\n전문서비스 영역: **{sector}**\n\n"
     for key, info in QUERIES.items():
         if key in results:
             research += f"## {info['title']}\n\n{results[key]}\n\n---\n\n"
 
-    # Load reviewer prompts
     cfg = json.loads(
         (BASE_DIR / "task2_neofirm" / "agents" / "reviewers.json").read_text(encoding="utf-8")
     )
     user_msg = f"## Research Material\n\n{research}"
 
-    # Step 1: 3 reviewers in parallel
     with _TPE(max_workers=3) as pool:
         futs = {
             "market":     pool.submit(_committee_call_claude, cfg["market_reviewer"]["prompt"], user_msg),
@@ -500,11 +528,9 @@ def _run_committee_sync(sector: str, results: dict) -> dict:
     for name, text in reviews.items():
         (rev_dir / f"{name}_review.md").write_text(text, encoding="utf-8")
 
-    # Step 2: Scores & decisions
     scores    = {n: _committee_extract_score(t)    for n, t in reviews.items()}
     decisions = {n: _committee_extract_decision(t) for n, t in reviews.items()}
 
-    # Step 3: Disagreements
     disagree = []
     if len(set(decisions.values())) > 1:
         disagree.append({
@@ -525,31 +551,43 @@ def _run_committee_sync(sector: str, results: dict) -> dict:
         encoding="utf-8",
     )
 
-    # Step 4: Committee discussion (only if disagreements exist)
-    discussion = ""
-    if disagree:
-        disc_sys = (
-            "당신은 NeoFirm AI 투자위원회 사회자입니다. "
-            "세 리뷰어 보고서와 이견 목록을 바탕으로 위원회 토론을 한국어 마크다운으로 작성하세요. "
-            "각 이견의 해소 여부(RESOLVED / PARTIALLY RESOLVED / UNRESOLVED)를 명시하세요."
-        )
-        disc_user = (
-            f"## 섹터\n{sector}\n\n"
-            f"## 시장 리뷰\n{reviews['market'][:1500]}\n\n"
-            f"## 기술 리뷰\n{reviews['technology'][:1500]}\n\n"
-            f"## 사업 리뷰\n{reviews['business'][:1500]}\n\n"
-            f"## 이견\n{json.dumps(disagree, ensure_ascii=False)}"
-        )
-        discussion = _committee_call_claude(disc_sys, disc_user)
-        (comm_dir / "discussion.md").write_text(discussion, encoding="utf-8")
+    return reviews, scores, decisions, disagree, cfg
 
-        resolution = _committee_call_claude(
-            "위원회 토론을 간략히 요약하고 이견 해소 결과를 정리하세요. 한국어, 마크다운.",
-            discussion,
-        )
-        (comm_dir / "resolution.md").write_text(resolution, encoding="utf-8")
 
-    # Step 5: Final decision
+def _committee_phase2(sector: str, reviews: dict, disagree: list, cfg: dict) -> tuple:
+    """Phase 2: Committee discussion (only if disagreements). Returns (discussion, resolution)."""
+    if not disagree:
+        return "", ""
+
+    comm_dir = WORKSPACE_DIR / "committee"
+    comm_dir.mkdir(exist_ok=True)
+
+    disc_sys = (
+        "당신은 NeoFirm AI 투자위원회 사회자입니다. "
+        "세 리뷰어 보고서와 이견 목록을 바탕으로 위원회 토론을 한국어 마크다운으로 작성하세요. "
+        "각 이견의 해소 여부(RESOLVED / PARTIALLY RESOLVED / UNRESOLVED)를 명시하세요."
+    )
+    disc_user = (
+        f"## 섹터\n{sector}\n\n"
+        f"## 시장 리뷰\n{reviews['market'][:1500]}\n\n"
+        f"## 기술 리뷰\n{reviews['technology'][:1500]}\n\n"
+        f"## 사업 리뷰\n{reviews['business'][:1500]}\n\n"
+        f"## 이견\n{json.dumps(disagree, ensure_ascii=False)}"
+    )
+    discussion = _committee_call_claude(disc_sys, disc_user)
+    (comm_dir / "discussion.md").write_text(discussion, encoding="utf-8")
+
+    resolution = _committee_call_claude(
+        "위원회 토론을 간략히 요약하고 이견 해소 결과를 정리하세요. 한국어, 마크다운.",
+        discussion,
+    )
+    (comm_dir / "resolution.md").write_text(resolution, encoding="utf-8")
+
+    return discussion, resolution
+
+
+def _committee_phase3(sector: str, reviews: dict, discussion: str, cfg: dict) -> tuple:
+    """Phase 3: Final decision memo. Returns (memo, final_decision)."""
     dec_user = (
         f"## Sector\n{sector}\n\n"
         f"## Market Review\n{reviews['market'][:1500]}\n\n"
@@ -566,8 +604,12 @@ def _run_committee_sync(sector: str, results: dict) -> dict:
     (dec_dir / "investment_memo.md").write_text(memo, encoding="utf-8")
 
     final_decision = _committee_extract_decision(memo)
+    return memo, final_decision
 
-    # Step 6: Build slides_data.json
+
+def _committee_phase4(sector: str, results: dict, reviews: dict, scores: dict,
+                       decisions: dict, final_decision: str, memo: str) -> str:
+    """Phase 4: Build slides_data.json and render committee PPTX. Returns pptx filename."""
     slides = []
     label_map = {"A": f"NeoFirm × {sector}", "B": "AI-전문가 작업 배분", "C": "1페이지 투자메모", "D": "문제정의문"}
     for key in ["A", "B", "C", "D"]:
@@ -578,7 +620,7 @@ def _run_committee_sync(sector: str, results: dict) -> dict:
     slides.append({"title": f"최종 결정: {final_decision}", "key_points": _committee_bullets(memo), "badge": final_decision})
 
     slides_data = {
-        "title": "NeoFirm AI Investment Committee",
+        "title": f"NeoFirm × {sector} 투자 분석",
         "sector": sector,
         "decision": final_decision,
         "scores_by_reviewer": scores,
@@ -592,7 +634,6 @@ def _run_committee_sync(sector: str, results: dict) -> dict:
         json.dumps(slides_data, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
-    # Step 7: Render PPTX via pptx_renderer
     import importlib.util
     spec = importlib.util.spec_from_file_location(
         "pptx_renderer",
@@ -606,11 +647,7 @@ def _run_committee_sync(sector: str, results: dict) -> dict:
     pptx_path = pres_dir / f"final_{safe}_{ts}.pptx"
     mod.render(slides_data, pptx_path)
 
-    return {
-        "decision": final_decision,
-        "pptx_filename": pptx_path.name,
-        "memo_preview": memo[:300],
-    }
+    return pptx_path.name
 
 
 @app.get("/api/workspace")
@@ -739,12 +776,47 @@ def _build_pptx(sector: str, results: dict, ts: str) -> Path:
         run.font.color.rgb = color
         return txb
 
+    import re as _re
+
+    def _extract_bullets(text: str, n: int = 7) -> list:
+        out = []
+        for line in text.split("\n"):
+            line = line.strip()
+            if not line or line.startswith("#") or "|" in line or line.startswith("---"):
+                continue
+            line = _re.sub(r"^[-•*▸]\s*", "", line).strip()
+            line = _re.sub(r"^\d+\.\s*", "", line).strip()
+            line = _re.sub(r"\*\*(.+?)\*\*", r"\1", line)
+            line = _re.sub(r"\[(\d+(?:,\s*\d+)*)\]", "", line).strip()
+            if len(line) > 8:
+                out.append(line[:110] + ("…" if len(line) > 110 else ""))
+            if len(out) >= n:
+                break
+        return out
+
+    def _pptx_title_from_content(sector: str, results: dict) -> str:
+        d_text = results.get("D", "")
+        for line in d_text.splitlines():
+            line = _re.sub(r"[#*`|>_~\[\]]+", "", line).strip()
+            line = _re.sub(r"\s+", " ", line)
+            if 15 < len(line) < 65 and not line.startswith("※") and not line.startswith("추가"):
+                return line
+        return f"{sector} 전문서비스 혁신 분석"
+
+    LIGHT_GRAY = RGBColor(0xF4, 0xF5, 0xF7)
+    TEXT_DARK  = RGBColor(0x1a, 0x1a, 0x2e)
+    TEXT_MID   = RGBColor(0x55, 0x60, 0x75)
+
+    report_title = _pptx_title_from_content(sector, results)
+
     # ── Slide 1: Title ──────────────────────────────────────────────────
     slide = prs.slides.add_slide(blank_layout)
     _add_rect(slide, 0, 0, 13.33, 7.5, NAVY)
-    _add_textbox(slide, "NeoFirm 과제 자동 생성 보고서", 1, 1.8, 11.33, 1.2, 36, True, WHITE, align=PP_ALIGN.CENTER)
-    _add_textbox(slide, f"전문서비스 영역: {sector}", 1, 3.1, 11.33, 0.8, 22, False, ACCENT, align=PP_ALIGN.CENTER)
-    _add_textbox(slide, f"생성일시: {ts}  |  NeoFirm AI 분석 시스템", 1, 4.2, 11.33, 0.6, 14, False, WHITE, align=PP_ALIGN.CENTER)
+    _add_rect(slide, 0, 5.8, 13.33, 1.7, ACCENT)
+    _add_textbox(slide, "NeoFirm", 1, 1.0, 11.33, 0.9, 42, True, WHITE, align=PP_ALIGN.CENTER)
+    _add_textbox(slide, report_title, 1, 2.1, 11.33, 1.1, 24, True, WHITE, align=PP_ALIGN.CENTER)
+    _add_textbox(slide, sector, 1, 3.4, 11.33, 0.7, 18, False, ACCENT, align=PP_ALIGN.CENTER)
+    _add_textbox(slide, f"생성일시: {ts}  |  AI 분석 시스템", 1, 6.0, 11.33, 0.6, 13, False, WHITE, align=PP_ALIGN.CENTER)
 
     # ── Content slides ──────────────────────────────────────────────────
     for key, info in QUERIES.items():
@@ -752,42 +824,45 @@ def _build_pptx(sector: str, results: dict, ts: str) -> Path:
             continue
         slide = prs.slides.add_slide(blank_layout)
 
-        # header bar
-        _add_rect(slide, 0, 0, 13.33, 1.1, NAVY)
-        _add_textbox(slide, info["title"], 0.3, 0.15, 12.0, 0.8, 22, True, WHITE)
+        # 상단 헤더 바
+        _add_rect(slide, 0, 0, 13.33, 1.15, NAVY)
+        # 섹션 레이블 (우측 상단)
+        _add_textbox(slide, f"과제 {key}", 11.0, 0.18, 2.0, 0.55, 13, False, ACCENT, align=PP_ALIGN.RIGHT)
+        _add_textbox(slide, info["title"], 0.4, 0.18, 10.5, 0.75, 20, True, WHITE)
 
-        # body text
-        body_text = results[key]
-        # Truncate to ~2000 chars to fit on slide
-        if len(body_text) > 2000:
-            body_text = body_text[:1970] + "\n…(이하 생략)"
+        # 불릿 포인트 추출
+        bullets = _extract_bullets(results[key], n=7)
+        y = 1.35
+        for i, pt in enumerate(bullets):
+            dot_color = ACCENT if i == 0 else TEXT_MID
+            _add_textbox(slide, "▸", 0.4, y, 0.35, 0.52, 13, True, dot_color)
+            _add_textbox(slide, pt, 0.75, y, 12.0, 0.52, 13, False, TEXT_DARK)
+            y += 0.54
 
-        _add_textbox(slide, body_text, 0.4, 1.3, 12.5, 5.8, 11, False, RGBColor(0x1a, 0x1a, 0x1a))
+        # 하단 회색 구분선
+        _add_rect(slide, 0.4, 7.1, 12.53, 0.03, RGBColor(0xCC, 0xD0, 0xDC))
 
     # ── Slide: Summary ──────────────────────────────────────────────────
     slide = prs.slides.add_slide(blank_layout)
-    _add_rect(slide, 0, 0, 13.33, 1.1, NAVY)
-    _add_textbox(slide, "전체 요약 및 Next Steps", 0.3, 0.15, 12.0, 0.8, 22, True, WHITE)
-
-    def _extract_first_line(text: str, max_len: int = 80) -> str:
-        import re
-        for line in text.splitlines():
-            line = re.sub(r"[#*`|>_~\[\]]+", "", line).strip()
-            line = re.sub(r"\s+", " ", line)
-            if len(line) > 10:
-                return line[:max_len] + ("…" if len(line) > max_len else "")
-        return ""
+    _add_rect(slide, 0, 0, 13.33, 1.15, NAVY)
+    _add_textbox(slide, "전체 요약 · Next Steps", 0.4, 0.18, 10.5, 0.75, 20, True, WHITE)
 
     key_labels = {"A": "가치사슬 해부", "B": "AI-전문가 작업 배분", "C": "1페이지 투자메모", "D": "문제정의문"}
-    summary_lines = [f"영역: {sector}", ""]
+    y = 1.4
     for key in ["A", "B", "C", "D"]:
         if key in results:
-            snippet = _extract_first_line(results[key])
-            summary_lines.append(f"✓ {key}. {key_labels[key]} — {snippet}")
+            bullets = _extract_bullets(results[key], n=1)
+            snippet = bullets[0] if bullets else "—"
+            _add_textbox(slide, f"{key}.", 0.4, y, 0.5, 0.55, 14, True, ACCENT)
+            _add_textbox(slide, f"{key_labels[key]}  —  {snippet}", 0.9, y, 11.8, 0.55, 13, False, TEXT_DARK)
         else:
-            summary_lines.append(f"✗ {key}. {key_labels[key]} — 생성 실패")
-    summary_lines += ["", f"Next: {sector} 프로토타입 설계 → MVP 개발 → 초기 고객 검증"]
-    _add_textbox(slide, "\n".join(summary_lines), 0.4, 1.3, 12.5, 5.5, 14, False, RGBColor(0x1a, 0x1a, 0x1a))
+            _add_textbox(slide, f"{key}.", 0.4, y, 0.5, 0.55, 14, True, TEXT_MID)
+            _add_textbox(slide, f"{key_labels[key]}  —  생성 실패", 0.9, y, 11.8, 0.55, 13, False, TEXT_MID)
+        y += 0.60
+
+    _add_rect(slide, 0.4, y + 0.1, 12.53, 0.03, RGBColor(0xCC, 0xD0, 0xDC))
+    _add_textbox(slide, f"Next: {sector} 프로토타입 설계  →  MVP 개발  →  초기 고객 검증",
+                 0.4, y + 0.25, 12.53, 0.6, 14, False, ACCENT)
 
     safe_sector = "".join(c if c.isalnum() or c in "-_ " else "_" for c in sector)[:30]
     fname = f"NeoFirm_{safe_sector}_{datetime.now().strftime('%Y%m%d_%H%M')}.pptx"
