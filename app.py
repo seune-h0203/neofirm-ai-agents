@@ -33,7 +33,7 @@ OUTPUT_DIR = BASE_DIR / "output"
 STATIC_DIR = BASE_DIR / "static"
 LOGS_DIR = BASE_DIR / "logs"
 WORKSPACE_DIR = BASE_DIR / "task2_neofirm" / "workspace"
-NOTEBOOK_ID = "6b8429e2-cc08-466e-b785-ee6c0795112f"
+NOTEBOOK_ID = "65c4ca8f-4c96-497c-b366-981567849412"
 
 OUTPUT_DIR.mkdir(exist_ok=True)
 STATIC_DIR.mkdir(exist_ok=True)
