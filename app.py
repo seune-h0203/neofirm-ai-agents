@@ -153,8 +153,8 @@ def _run_nlm_sync(question: str) -> str:
             timeout=180,
         )
     except subprocess.TimeoutExpired:
-        _err_log.error("nlm timeout after 180s")
-        raise RuntimeError("NotebookLM 응답 시간 초과 (180s)")
+        _err_log.error("nlm timeout after 180s — Gemini fallback 시도")
+        return _claude_fallback(question)
 
     stdout_text = result.stdout.decode("utf-8", errors="replace").replace("\r\n", "\n")
     stderr_text = result.stderr.decode("utf-8", errors="replace").replace("\r\n", "\n").strip()
