@@ -1574,7 +1574,7 @@ function handleEvent(ev) {
       const el = document.getElementById('claudeVerdict');
       if (el) { el.textContent = dec; el.className = `verdict-badge ${dec.toLowerCase()}`; }
       const btn = document.getElementById('claudePptBtn');
-      if (btn && ev.pptx_filename) { btn.hidden = false; btn.onclick = () => { window.location.href = '/api/download/' + encodeURIComponent(ev.pptx_filename); }; }
+      if (btn && ev.pptx_filename) { btn.hidden = false; btn.onclick = () => { window.location.href = '/api/workspace-claude/download'; }; }
       if (ev.pptx_filename && selectedModel === 'claude') window._committeePptFilename = ev.pptx_filename;
       // Claude 단독 모드이면 메인 위원회 패널도 업데이트
       if (selectedModel === 'claude') {
@@ -1593,7 +1593,7 @@ function handleEvent(ev) {
       const el = document.getElementById('geminiVerdict');
       if (el) { el.textContent = dec; el.className = `verdict-badge ${dec.toLowerCase()}`; }
       const btn = document.getElementById('geminiPptBtn');
-      if (btn && ev.pptx_filename) { btn.hidden = false; btn.onclick = () => { window.location.href = '/api/download/' + encodeURIComponent(ev.pptx_filename); }; }
+      if (btn && ev.pptx_filename) { btn.hidden = false; btn.onclick = () => { window.location.href = '/api/workspace/download'; }; }
       loadWorkspace();
     }
     // Complete committee progress bar → fade out after 2.5 s
@@ -1870,10 +1870,10 @@ function renderWorkspace(data) {
   }
 }
 
-// PPT download (footer button)
+// PPT download (footer button) — route by active model
 document.getElementById('pptDownloadBtn').addEventListener('click', () => {
-  if (window._committeePptFilename) {
-    window.location.href = '/api/download/' + encodeURIComponent(window._committeePptFilename);
+  if (selectedModel === 'claude') {
+    window.location.href = '/api/workspace-claude/download';
   } else {
     window.location.href = '/api/workspace/download';
   }
