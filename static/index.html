@@ -1574,7 +1574,8 @@ function handleEvent(ev) {
       const el = document.getElementById('claudeVerdict');
       if (el) { el.textContent = dec; el.className = `verdict-badge ${dec.toLowerCase()}`; }
       const btn = document.getElementById('claudePptBtn');
-      if (btn && ev.pptx_filename) { btn.hidden = false; btn.onclick = () => { window.location.href = '/api/workspace-claude/download'; }; }
+      if (btn && ev.pptx_filename) { btn.hidden = false; btn.onclick = () => { window.location.href = '/api/download/' + encodeURIComponent(ev.pptx_filename); }; }
+      if (ev.pptx_filename && selectedModel === 'claude') window._committeePptFilename = ev.pptx_filename;
       // Claude 단독 모드이면 메인 위원회 패널도 업데이트
       if (selectedModel === 'claude') {
         const badge = document.getElementById('finalDecisionBadge');
@@ -1588,11 +1589,11 @@ function handleEvent(ev) {
       badge.textContent = dec;
       badge.className = `badge-pill badge-${dec.toLowerCase()}`;
       document.getElementById('committeeSubtitle').textContent = 'NeoFirm 워크스페이스';
-      if (ev.pptx_filename) window._geminiPptxFile = ev.pptx_filename;
+      if (ev.pptx_filename) { window._geminiPptxFile = ev.pptx_filename; window._committeePptFilename = ev.pptx_filename; }
       const el = document.getElementById('geminiVerdict');
       if (el) { el.textContent = dec; el.className = `verdict-badge ${dec.toLowerCase()}`; }
       const btn = document.getElementById('geminiPptBtn');
-      if (btn && ev.pptx_filename) { btn.hidden = false; btn.onclick = () => { window.location.href = '/api/workspace/download'; }; }
+      if (btn && ev.pptx_filename) { btn.hidden = false; btn.onclick = () => { window.location.href = '/api/download/' + encodeURIComponent(ev.pptx_filename); }; }
       loadWorkspace();
     }
     // Complete committee progress bar → fade out after 2.5 s
@@ -1854,6 +1855,7 @@ function renderWorkspace(data) {
   const pptDlBtn = document.getElementById('pptDownloadBtn');
   if (data.pptx_filename) {
     document.getElementById('pptFilename').textContent = data.pptx_filename;
+    window._committeePptFilename = data.pptx_filename;
     const wf6 = document.getElementById('wf-6');
     if (wf6) { wf6.classList.add('done'); wf6.querySelector('.wf-status').textContent = '준비됨'; }
     if (pptDlBtn) pptDlBtn.disabled = false;
@@ -1870,7 +1872,11 @@ function renderWorkspace(data) {
 
 // PPT download (footer button)
 document.getElementById('pptDownloadBtn').addEventListener('click', () => {
-  window.location.href = '/api/workspace/download';
+  if (window._committeePptFilename) {
+    window.location.href = '/api/download/' + encodeURIComponent(window._committeePptFilename);
+  } else {
+    window.location.href = '/api/workspace/download';
+  }
 });
 // refresh
 document.getElementById('refreshBtn').addEventListener('click', () => {
