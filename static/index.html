@@ -308,7 +308,19 @@ body::after {
 .tool-icon-nb { background: #ecfdf5; }
 .tool-icon-cc { background: var(--accent-soft); }
 .tool-icon-gemini { background: linear-gradient(135deg, #e8f0fe, #f3e8fd); }
+.tool-icon-claude { background: linear-gradient(135deg, #fef3cd, #fde8d0); }
 .tool-icon-nf { background: transparent; }
+.tool-icon-dual {
+  display: flex; align-items: center; gap: 6px;
+}
+.tool-icon-dual .tool-icon {
+  width: 38px; height: 38px;
+}
+.tool-icon-dimmed {
+  opacity: .22; filter: grayscale(.6);
+  transition: opacity .2s, filter .2s;
+}
+.tool-icon-dual .tool-icon { transition: opacity .2s, filter .2s; }
 .tool-chip {
   display: inline-block;
   font-size: .62rem;
@@ -497,6 +509,34 @@ body::after {
 .gen-btn:hover { background: var(--accent-dim); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(91,108,255,.35); }
 .gen-btn:active { transform: scale(.97); }
 .gen-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; box-shadow: none; }
+/* model toggle */
+.model-toggle { display: flex; gap: 0; border-radius: 8px; overflow: hidden; border: 1.5px solid var(--border); width: fit-content; }
+.model-opt { padding: 8px 18px; border: none; background: var(--card); color: var(--fg-2); font-family: inherit; font-size: .82rem; font-weight: 600; cursor: pointer; transition: background .15s, color .15s; white-space: nowrap; }
+.model-opt + .model-opt { border-left: 1.5px solid var(--border); }
+.model-opt.active[data-model="gemini"] { background: #0d8a6a; color: #fff; }
+.model-opt.active[data-model="claude"] { background: #c2622d; color: #fff; }
+.model-opt.active[data-model="both"]   { background: var(--accent); color: #fff; }
+.model-opt:hover:not(.active) { background: var(--hover); color: var(--fg); }
+.gen-btn-group { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+/* keep old classes for disabled state compat */
+.gen-btn-gemini.active { background: #0d8a6a; }
+.gen-btn-claude.active { background: #c2622d; }
+.gen-btn-both.active   { background: var(--accent); }
+/* Comparison card */
+.comparison-card { margin-top: 24px; }
+.comparison-header { padding: 20px 24px 14px; border-bottom: 1px solid var(--border); }
+.comparison-title { font-size: 1.1rem; font-weight: 700; color: var(--fg); }
+.comparison-verdicts { display: flex; gap: 16px; margin-top: 14px; flex-wrap: wrap; }
+.verdict-box { flex: 1; min-width: 180px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 14px 18px; }
+.verdict-label { font-size: .75rem; font-weight: 600; color: var(--fg-2); letter-spacing: .04em; text-transform: uppercase; margin-bottom: 6px; }
+.verdict-badge { font-size: 1.4rem; font-weight: 800; }
+.verdict-badge.invest { color: var(--invest); }
+.verdict-badge.hold { color: var(--hold); }
+.verdict-badge.pass { color: var(--pass); }
+.verdict-badge.none { color: var(--fg-3); }
+.comparison-body { padding: 20px 24px; }
+.comparison-report { font-size: .88rem; line-height: 1.7; color: var(--fg); }
+.comparison-dl-row { display: flex; gap: 10px; flex-wrap: wrap; padding: 0 24px 20px; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .chip {
@@ -645,6 +685,40 @@ body::after {
 .badge-pass   { background: var(--pass-bg);   color: var(--pass);   border: 1px solid var(--pass-border); }
 .badge-none   { background: var(--surface-2); color: var(--fg-3);   border: 1px solid var(--border); }
 
+/* ── committee progress bar ──────────────────────── */
+.cmt-prog {
+  padding: 12px 28px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.cmt-prog-top {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 7px;
+}
+.cmt-prog-label { font-size: .75rem; font-weight: 500; color: var(--fg-2); }
+.cmt-prog-frac  { font-size: .7rem; color: var(--fg-3); }
+.cmt-prog-track {
+  height: 5px; background: var(--surface-3); border-radius: 3px; overflow: hidden;
+}
+.cmt-prog-fill {
+  height: 100%; border-radius: 3px; width: 0%;
+  background: linear-gradient(90deg, var(--accent), #818cf8);
+  transition: width .5s ease;
+}
+.cmt-prog-phases { display: flex; gap: 6px; margin-top: 9px; }
+.cmt-phase-chip {
+  flex: 1; height: 4px; border-radius: 2px; background: var(--surface-3);
+  transition: background .3s;
+}
+.cmt-phase-chip.run {
+  background: var(--accent);
+  animation: phaseRun 1s ease-in-out infinite alternate;
+}
+.cmt-phase-chip.done { background: var(--done); }
+.cmt-phase-chip.skip { background: var(--border-strong); }
+@keyframes phaseRun { from { opacity: .35; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .cmt-phase-chip.run { animation: none; } }
+@media (max-width: 640px) { .cmt-prog { padding: 10px 18px 8px; } }
+
 .committee-tabs {
   display: flex; gap: 0;
   padding: 0 28px; border-bottom: 1px solid var(--border);
@@ -791,6 +865,9 @@ body::after {
   .steps { grid-template-columns: repeat(2, 1fr); }
   .input-row { flex-direction: column; }
   .gen-btn { width: 100%; }
+  .gen-btn-group { align-items: stretch; width: 100%; }
+  .model-toggle { width: 100%; }
+  .model-opt { flex: 1; }
   .committee-header { padding: 16px 18px 14px; }
   .committee-tabs { padding: 0 18px; }
   .reviewer-grid { padding: 16px 18px 0; }
@@ -827,7 +904,7 @@ body::after {
   <section class="hero">
     <div class="hero-eyebrow">AI 자동화 프로젝트</div>
     <h1>NeoFirm <span class="accent">Automation</span> Lab</h1>
-    <p class="hero-sub">NotebookLM이 조사하고,<br>Gemini가 분석·평가·토론합니다.</p>
+    <p class="hero-sub" id="heroSub">NotebookLM이 자료를 조사하고,<br>AI 위원회가 분석·평가·토론합니다.</p>
   </section>
 
   <!-- 3-stage tool flow (static visual) -->
@@ -854,9 +931,12 @@ body::after {
         </svg>
       </div>
       <div class="tool-card">
-        <div class="tool-icon tool-icon-gemini"><img src="/static/gemini.svg" alt="Gemini"></div>
+        <div class="tool-icon-dual" id="toolStep2Icon">
+          <div class="tool-icon tool-icon-gemini" id="toolStep2IconGemini"><img src="/static/gemini.png" alt="Gemini"></div>
+          <div class="tool-icon tool-icon-claude" id="toolStep2IconClaude"><img src="/static/claude.png" alt="Claude"></div>
+        </div>
         <span class="tool-chip">Step 2</span>
-        <div class="tool-name">Gemini</div>
+        <div class="tool-name" id="toolStep2Name">AI 위원회</div>
         <div class="tool-sub">분석 · 평가 · 토론</div>
         <div class="tool-desc">3개 관점 독립 평가 · 쟁점 토론</div>
       </div>
@@ -937,7 +1017,14 @@ body::after {
         autocomplete="off"
         spellcheck="false"
       />
-      <button class="gen-btn" id="genBtn">분석 시작</button>
+      <div class="gen-btn-group">
+        <div class="model-toggle" id="modelToggle">
+          <button class="model-opt active" data-model="gemini">Gemini</button>
+          <button class="model-opt" data-model="claude">Claude</button>
+          <button class="model-opt" data-model="both">둘 다 비교</button>
+        </div>
+        <button class="gen-btn" id="genBtn">▶ 분석 시작</button>
+      </div>
     </div>
     <div class="chips" id="chips">
       <button class="chip" data-v="법률 (상업계약·NDA)">법률</button>
@@ -1013,6 +1100,7 @@ body::after {
       <div class="action-btns">
         <button class="btn-sm btn-ghost" id="copyBtn">복사</button>
         <button class="btn-sm btn-primary" id="dlBtn">전체 다운로드</button>
+        <button class="btn-sm btn-primary" id="researchPptBtn" hidden>PPT 다운로드</button>
       </div>
       <span class="copy-feedback" id="copyFeedback">복사됨 ✓</span>
     </div>
@@ -1030,6 +1118,22 @@ body::after {
         <p class="committee-desc">시장성 · 기술성 · 사업성 관점에서<br>독립적으로 평가한 결과입니다.</p>
       </div>
       <div style="font-size:.72rem;color:var(--fg-3)" id="committeeSubtitle">NeoFirm 워크스페이스</div>
+    </div>
+
+    <!-- committee progress bar (shown during analysis) -->
+    <div class="cmt-prog" id="committeeProgBar" style="display:none">
+      <div class="cmt-prog-top">
+        <span class="cmt-prog-label" id="cpbLabel">준비 중…</span>
+        <span class="cmt-prog-frac" id="cpbFrac">0 / 5</span>
+      </div>
+      <div class="cmt-prog-track"><div class="cmt-prog-fill" id="cpbFill"></div></div>
+      <div class="cmt-prog-phases">
+        <div class="cmt-phase-chip" id="cpb-2" title="리뷰어 평가"></div>
+        <div class="cmt-phase-chip" id="cpb-3" title="쟁점 감지"></div>
+        <div class="cmt-phase-chip" id="cpb-4" title="AI 토론"></div>
+        <div class="cmt-phase-chip" id="cpb-5" title="최종 판단"></div>
+        <div class="cmt-phase-chip" id="cpb-6" title="PPT 생성"></div>
+      </div>
     </div>
 
     <div class="committee-tabs">
@@ -1103,6 +1207,37 @@ body::after {
       <button class="btn-sm btn-primary" id="pptDownloadBtn">PPT 다운로드</button>
       <button class="btn-sm btn-ghost"   id="refreshBtn">새로고침</button>
       <span class="ppt-filename" id="pptFilename"></span>
+    </div>
+  </div>
+
+  <!-- Comparison Card (shown after "둘 다 비교" run) -->
+  <div class="card comparison-card" id="comparisonCard" hidden>
+    <div class="comparison-header">
+      <div class="comparison-title">AI 위원회 비교 분석</div>
+      <div class="comparison-verdicts">
+        <div class="verdict-box">
+          <div class="verdict-label">Gemini 판단</div>
+          <div class="verdict-badge none" id="geminiVerdict">—</div>
+        </div>
+        <div class="verdict-box">
+          <div class="verdict-label">Claude 판단</div>
+          <div class="verdict-badge none" id="claudeVerdict">—</div>
+        </div>
+        <div class="verdict-box" style="flex:2">
+          <div class="verdict-label">일치 여부</div>
+          <div style="font-size:1rem;font-weight:600;margin-top:4px" id="agreementStatus">—</div>
+        </div>
+      </div>
+    </div>
+    <div class="comparison-dl-row">
+      <button class="btn-sm btn-primary" id="geminiPptBtn" hidden>Gemini PPT 다운로드</button>
+      <button class="btn-sm btn-primary" id="claudePptBtn" hidden>Claude PPT 다운로드</button>
+      <button class="btn-sm btn-ghost" id="compReportBtn" hidden>비교 보고서 다운로드</button>
+    </div>
+    <div class="comparison-body">
+      <div class="comparison-report md-body" id="comparisonReport">
+        <p style="color:var(--fg-3)">비교 보고서 생성 대기 중…</p>
+      </div>
     </div>
   </div>
 
@@ -1189,24 +1324,89 @@ function parseSSEChunk(text) {
   return events;
 }
 
-// ── generate ─────────────────────────────────────────────
-const genBtn = document.getElementById('genBtn');
-genBtn.addEventListener('click', startGenerate);
-document.getElementById('sectorInput').addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !generating) startGenerate();
+// ── model toggle ─────────────────────────────────────────
+let selectedModel = 'gemini';
+const modelEndpoints = { gemini: '/api/generate', claude: '/api/generate-claude', both: '/api/generate-both' };
+const modelBtnLabels = { gemini: '▶ 분석 시작', claude: '▶ 분석 시작', both: '▶ 비교 분석 시작' };
+
+// Initial icon state: Gemini active, Claude dimmed (default mode)
+(function initStep2Icons() {
+  const c = document.getElementById('toolStep2IconClaude');
+  if (c) c.classList.add('tool-icon-dimmed');
+})();
+
+document.getElementById('modelToggle').addEventListener('click', e => {
+  const opt = e.target.closest('.model-opt');
+  if (!opt || generating) return;
+  selectedModel = opt.dataset.model;
+  document.querySelectorAll('.model-opt').forEach(b => b.classList.toggle('active', b === opt));
+  document.getElementById('genBtn').textContent = modelBtnLabels[selectedModel];
+  // Sync Step 2 icon highlight with selected model
+  const iG = document.getElementById('toolStep2IconGemini');
+  const iC = document.getElementById('toolStep2IconClaude');
+  if (iG && iC) {
+    iG.classList.toggle('tool-icon-dimmed', selectedModel === 'claude');
+    iC.classList.toggle('tool-icon-dimmed', selectedModel === 'gemini');
+  }
 });
 
-async function startGenerate() {
+// ── generate ─────────────────────────────────────────────
+const genBtn = document.getElementById('genBtn');
+genBtn.addEventListener('click', () => startGenerate(modelEndpoints[selectedModel]));
+document.getElementById('sectorInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !generating) startGenerate(modelEndpoints[selectedModel]);
+});
+
+function setAllBtnsDisabled(disabled) {
+  genBtn.disabled = disabled;
+  document.querySelectorAll('.model-opt').forEach(b => { b.disabled = disabled; });
+}
+
+async function startGenerate(apiEndpoint) {
   const sector = document.getElementById('sectorInput').value.trim();
   if (!sector) { showToast('전문서비스 영역을 입력해주세요', true); return; }
   if (generating) return;
 
+  const isBoth = apiEndpoint.includes('both');
+  const isClaude = apiEndpoint.includes('claude');
+
+  // Update hero subtitle and Step 2 card to reflect which engine runs
+  const heroSub = document.getElementById('heroSub');
+  const step2Name = document.getElementById('toolStep2Name');
+  const iconG = document.getElementById('toolStep2IconGemini');
+  const iconC = document.getElementById('toolStep2IconClaude');
+  if (isBoth) {
+    heroSub.innerHTML = 'NotebookLM이 자료를 조사하고,<br><strong>Gemini</strong>와 <strong>Claude</strong>가 각각 분석·비교합니다.';
+    step2Name.textContent = 'Gemini + Claude';
+    if (iconG) iconG.classList.remove('tool-icon-dimmed');
+    if (iconC) iconC.classList.remove('tool-icon-dimmed');
+  } else if (isClaude) {
+    heroSub.innerHTML = 'NotebookLM이 자료를 조사하고,<br><strong>Claude</strong> 위원회가 분석·평가·토론합니다.';
+    step2Name.textContent = 'Claude';
+    if (iconG) iconG.classList.add('tool-icon-dimmed');
+    if (iconC) iconC.classList.remove('tool-icon-dimmed');
+  } else {
+    heroSub.innerHTML = 'NotebookLM이 자료를 조사하고,<br><strong>Gemini</strong> 위원회가 분석·평가·토론합니다.';
+    step2Name.textContent = 'Gemini';
+    if (iconG) iconG.classList.remove('tool-icon-dimmed');
+    if (iconC) iconC.classList.add('tool-icon-dimmed');
+  }
+
   generating = true;
-  genBtn.disabled = true;
+  setAllBtnsDisabled(true);
   genBtn.textContent = '생성 중…';
 
   document.getElementById('progressCard').hidden = false;
   document.getElementById('resultsCard').hidden = false;
+  if (isBoth) {
+    document.getElementById('comparisonCard').hidden = false;
+    document.getElementById('comparisonReport').innerHTML = '<p style="color:var(--fg-3)">분석 중…</p>';
+    document.getElementById('geminiVerdict').textContent = '—';
+    document.getElementById('claudeVerdict').textContent = '—';
+    document.getElementById('agreementStatus').textContent = '—';
+  } else {
+    document.getElementById('comparisonCard').hidden = true;
+  }
   document.querySelectorAll('.step').forEach(s => {
     s.dataset.state = 'idle';
     s.querySelector('.step-status').textContent = '대기';
@@ -1222,7 +1422,7 @@ async function startGenerate() {
   switchTab('A');
 
   try {
-    const resp = await fetch('/api/generate', {
+    const resp = await fetch(apiEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sector }),
@@ -1246,8 +1446,8 @@ async function startGenerate() {
     showToast(`오류: ${err.message}`, true);
   } finally {
     generating = false;
-    genBtn.disabled = false;
-    genBtn.textContent = '다시 생성';
+    setAllBtnsDisabled(false);
+    genBtn.textContent = modelBtnLabels[selectedModel];
   }
 }
 
@@ -1265,8 +1465,14 @@ function handleEvent(ev) {
     setWfStep(1, 'run', '진행 중');
   } else if (ev.type === 'pptx') {
     setWfStep(1, 'done', '완료');
-    // store for research PPT download
-    if (ev.filename) window._researchPptx = ev.filename;
+    if (ev.filename) {
+      window._researchPptx = ev.filename;
+      const btn = document.getElementById('researchPptBtn');
+      if (btn) {
+        btn.hidden = false;
+        btn.onclick = () => { window.location.href = '/api/download/' + encodeURIComponent(ev.filename); };
+      }
+    }
   } else if (ev.type === 'committee_progress') {
     const status = ev.status;
     const cls = status === 'done' ? 'done' : status === 'skip' ? 'done' : status === 'run' ? 'run' : '';
@@ -1274,6 +1480,37 @@ function handleEvent(ev) {
     setWfStep(ev.wf_step, cls, label);
     if (ev.message) {
       document.getElementById('committeeSubtitle').textContent = ev.message;
+    }
+    // Update committee progress bar
+    const CPB_MAP = {
+      '2_run':  {pct:  5, done:[],        run:[2]},
+      '2_done': {pct: 20, done:[2]},
+      '3_done': {pct: 40, done:[2,3]},
+      '4_run':  {pct: 45, done:[2,3],     run:[4]},
+      '4_done': {pct: 60, done:[2,3,4]},
+      '4_skip': {pct: 60, done:[2,3],     skip:[4]},
+      '5_run':  {pct: 65, done:[2,3,4],   run:[5]},
+      '5_done': {pct: 80, done:[2,3,4,5]},
+      '6_run':  {pct: 85, done:[2,3,4,5], run:[6]},
+      '6_done': {pct: 95, done:[2,3,4,5,6]},
+    };
+    const cpbInfo = CPB_MAP[`${ev.wf_step}_${ev.status}`];
+    if (cpbInfo) {
+      const fill = document.getElementById('cpbFill');
+      if (fill) fill.style.width = cpbInfo.pct + '%';
+      const lbl = document.getElementById('cpbLabel');
+      if (lbl && ev.message) lbl.textContent = ev.message;
+      const doneSteps = cpbInfo.done || [];
+      const frac = document.getElementById('cpbFrac');
+      if (frac) frac.textContent = `${doneSteps.length} / 5`;
+      [2,3,4,5,6].forEach(n => {
+        const chip = document.getElementById(`cpb-${n}`);
+        if (!chip) return;
+        chip.className = 'cmt-phase-chip';
+        if ((cpbInfo.skip||[]).includes(n)) chip.classList.add('skip');
+        else if (doneSteps.includes(n))     chip.classList.add('done');
+        else if ((cpbInfo.run||[]).includes(n)) chip.classList.add('run');
+      });
     }
   } else if (ev.type === 'progress') {
     setStep(ev.key, 'running', '생성 중…');
@@ -1314,25 +1551,107 @@ function handleEvent(ev) {
     const badge = document.getElementById('finalDecisionBadge');
     badge.textContent = '분석 중…';
     badge.className = 'badge-pill badge-none';
-    document.getElementById('committeeSubtitle').textContent = 'AI 투자위원회 분석 시작…';
+    const engLabel = ev.engine === 'claude' ? 'Claude' : ev.engine === 'gemini' ? 'Gemini' : 'AI';
+    document.getElementById('committeeSubtitle').textContent = `${engLabel} 투자위원회 분석 시작…`;
     for (let i = 2; i <= 6; i++) setWfStep(i, '', '—');
+    // Show & reset committee progress bar
+    const pb = document.getElementById('committeeProgBar');
+    if (pb) {
+      pb.style.display = '';
+      document.getElementById('cpbFill').style.width = '0%';
+      document.getElementById('cpbLabel').textContent = `${engLabel} 위원회 분석 시작…`;
+      document.getElementById('cpbFrac').textContent = '0 / 5';
+      [2,3,4,5,6].forEach(n => {
+        const chip = document.getElementById(`cpb-${n}`);
+        if (chip) chip.className = 'cmt-phase-chip';
+      });
+    }
   } else if (ev.type === 'committee_done') {
     const dec = (ev.decision || 'HOLD').toUpperCase();
-    const badge = document.getElementById('finalDecisionBadge');
-    badge.textContent = dec;
-    badge.className = `badge-pill badge-${dec.toLowerCase()}`;
-    document.getElementById('committeeSubtitle').textContent = 'NeoFirm 워크스페이스';
-    showToast(`AI 투자위원회 결정: ${dec} ✓`);
-    loadWorkspace();
+    const engine = ev.engine || 'gemini';
+    if (engine === 'claude') {
+      // Update Claude verdict in comparison card (둘 다 비교 모드)
+      const el = document.getElementById('claudeVerdict');
+      if (el) { el.textContent = dec; el.className = `verdict-badge ${dec.toLowerCase()}`; }
+      const btn = document.getElementById('claudePptBtn');
+      if (btn && ev.pptx_filename) { btn.hidden = false; btn.onclick = () => { window.location.href = '/api/workspace-claude/download'; }; }
+      // Claude 단독 모드이면 메인 위원회 패널도 업데이트
+      if (selectedModel === 'claude') {
+        const badge = document.getElementById('finalDecisionBadge');
+        badge.textContent = dec;
+        badge.className = `badge-pill badge-${dec.toLowerCase()}`;
+        loadWorkspaceClaude();
+      }
+    } else {
+      // Gemini — update committee panel + Gemini verdict in comparison
+      const badge = document.getElementById('finalDecisionBadge');
+      badge.textContent = dec;
+      badge.className = `badge-pill badge-${dec.toLowerCase()}`;
+      document.getElementById('committeeSubtitle').textContent = 'NeoFirm 워크스페이스';
+      if (ev.pptx_filename) window._geminiPptxFile = ev.pptx_filename;
+      const el = document.getElementById('geminiVerdict');
+      if (el) { el.textContent = dec; el.className = `verdict-badge ${dec.toLowerCase()}`; }
+      const btn = document.getElementById('geminiPptBtn');
+      if (btn && ev.pptx_filename) { btn.hidden = false; btn.onclick = () => { window.location.href = '/api/workspace/download'; }; }
+      loadWorkspace();
+    }
+    // Complete committee progress bar → fade out after 2.5 s
+    (function() {
+      const fill = document.getElementById('cpbFill');
+      if (fill) fill.style.width = '100%';
+      const lbl = document.getElementById('cpbLabel');
+      if (lbl) lbl.textContent = `완료 — ${dec}`;
+      const frac = document.getElementById('cpbFrac');
+      if (frac) frac.textContent = '5 / 5';
+      [2,3,4,5,6].forEach(n => {
+        const c = document.getElementById(`cpb-${n}`);
+        if (c) c.className = 'cmt-phase-chip done';
+      });
+      setTimeout(() => {
+        const pb = document.getElementById('committeeProgBar');
+        if (pb) pb.style.display = 'none';
+      }, 2500);
+    })();
+    showToast(`${engine === 'claude' ? 'Claude' : 'Gemini'} 위원회 결정: ${dec} ✓`);
   } else if (ev.type === 'committee_error') {
     document.getElementById('committeeSubtitle').textContent = '위원회 분석 실패';
-    showToast(`위원회 오류: ${ev.message}`, true);
+    const pb = document.getElementById('committeeProgBar');
+    if (pb) pb.style.display = 'none';
+    showToast(`위원회 오류 (${ev.engine || ''}): ${ev.message}`, true);
+  } else if (ev.type === 'comparison_start') {
+    document.getElementById('comparisonReport').innerHTML = '<p style="color:var(--fg-3)">비교 보고서 생성 중…</p>';
+    const ag = document.getElementById('agreementStatus');
+    if (ag) ag.textContent = '분석 중…';
+  } else if (ev.type === 'comparison_done') {
+    const ag = document.getElementById('agreementStatus');
+    if (ag) ag.textContent = ev.decisions_agree ? '✅ 일치' : '⚠️ 불일치';
+    loadComparisonReport();
+    const btn = document.getElementById('compReportBtn');
+    if (btn) { btn.hidden = false; btn.onclick = () => { window.location.href = '/api/download/comparison/comparison_report.md'; }; }
+    showToast(`비교 분석 완료 — ${ev.decisions_agree ? '두 모델 일치' : '두 모델 불일치'} ✓`);
+  } else if (ev.type === 'comparison_error') {
+    showToast(`비교 오류: ${ev.message}`, true);
   } else if (ev.type === 'done') {
     renderAll();
     const allTab = tabBar.querySelector('[data-tab="all"]');
     allTab.disabled = false;
     showToast('모든 과제 생성 완료 ✓');
   }
+}
+
+async function loadComparisonReport() {
+  try {
+    const res = await fetch('/api/comparison');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.report) {
+      document.getElementById('comparisonReport').innerHTML = `<div class="md-body">${marked.parse(data.report)}</div>`;
+    }
+    if (data.claude_pptx) {
+      const btn = document.getElementById('claudePptBtn');
+      if (btn) { btn.hidden = false; }
+    }
+  } catch {}
 }
 
 function renderPanel(key, md) {
@@ -1405,6 +1724,23 @@ async function loadWorkspace() {
   }
 }
 
+async function loadWorkspaceClaude() {
+  try {
+    const res = await fetch('/api/workspace-claude/data');
+    if (!res.ok) throw new Error('Claude workspace API 오류');
+    const data = await res.json();
+    renderWorkspace(data);
+    document.getElementById('committeeSubtitle').textContent =
+      data.sector ? `Claude 분석 — ${data.sector}` : 'Claude 투자위원회';
+  } catch (err) {
+    document.getElementById('reviewers-loading').textContent = '⚠ Claude 워크스페이스 로드 실패: ' + err.message;
+    ['disagree','discussion','resolution','final'].forEach(k => {
+      const el = document.getElementById(`${k}-loading`);
+      if (el) el.textContent = '⚠ 로드 실패';
+    });
+  }
+}
+
 function decisionClass(d) {
   if (!d) return 'none';
   const v = d.toUpperCase();
@@ -1422,6 +1758,10 @@ function renderWorkspace(data) {
     badge.textContent = '대기 중';
     badge.className = 'badge-pill badge-none';
     document.getElementById('committeeSubtitle').textContent = '분야 입력 후 자동 실행됩니다';
+    ['reviewers-loading','disagree-loading','discussion-loading','resolution-loading','final-loading'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) { el.style.display = 'block'; el.textContent = '분석 전 상태입니다. 위에서 분야를 입력하고 분석을 시작해주세요.'; }
+    });
     return;
   }
 
@@ -1511,10 +1851,14 @@ function renderWorkspace(data) {
   }
 
   // PPT filename + show download btn
+  const pptDlBtn = document.getElementById('pptDownloadBtn');
   if (data.pptx_filename) {
     document.getElementById('pptFilename').textContent = data.pptx_filename;
     const wf6 = document.getElementById('wf-6');
     if (wf6) { wf6.classList.add('done'); wf6.querySelector('.wf-status').textContent = '준비됨'; }
+    if (pptDlBtn) pptDlBtn.disabled = false;
+  } else {
+    if (pptDlBtn) pptDlBtn.disabled = true;
   }
 
   // mark workflow steps 1-5 as done

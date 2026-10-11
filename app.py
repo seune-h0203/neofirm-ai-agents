@@ -33,7 +33,19 @@ OUTPUT_DIR = BASE_DIR / "output"
 STATIC_DIR = BASE_DIR / "static"
 LOGS_DIR = BASE_DIR / "logs"
 WORKSPACE_DIR = BASE_DIR / "task2_neofirm" / "workspace"
+WORKSPACE_DIR_CLAUDE = BASE_DIR / "task2_neofirm" / "workspace_claude"
 NOTEBOOK_ID = "94637bca-8a45-4e2f-85d3-e9d68ae762f0"
+
+
+def _find_claude_exe() -> str | None:
+    ext_base = Path.home() / ".vscode" / "extensions"
+    if ext_base.exists():
+        for d in sorted(ext_base.glob("anthropic.claude-code-*/resources/native-binary/claude.exe"), reverse=True):
+            if d.exists():
+                return str(d)
+    return None
+
+CLAUDE_EXE = _find_claude_exe()
 
 OUTPUT_DIR.mkdir(exist_ok=True)
 STATIC_DIR.mkdir(exist_ok=True)
@@ -93,8 +105,8 @@ def _build_env() -> dict:
 _executor = ThreadPoolExecutor(max_workers=4)
 
 
-def _claude_fallback(question: str) -> str:
-    """NLM 없을 때 Gemini로 시도 (503 재시도 포함)."""
+def _gemini_research_fallback(question: str) -> str:
+    """NLM 실패 시 Gemini로 연구 조사 대체 (503 재시도 포함)."""
     import httpx, time
 
     gemini_key = os.environ.get("GEMINI_API_KEY", "")
@@ -137,8 +149,8 @@ def _run_nlm_sync(question: str) -> str:
     """
     nlm_path = NLM
     if not nlm_path:
-        _err_log.warning("nlm not found — falling back to Claude API")
-        return _claude_fallback(question)
+        _err_log.warning("nlm not found — Gemini로 연구 조사 대체")
+        return _gemini_research_fallback(question)
 
     cmd = [nlm_path, "notebook", "query", NOTEBOOK_ID, question]
     env = _build_env()
@@ -153,8 +165,8 @@ def _run_nlm_sync(question: str) -> str:
             timeout=180,
         )
     except subprocess.TimeoutExpired:
-        _err_log.error("nlm timeout after 180s — Gemini fallback 시도")
-        return _claude_fallback(question)
+        _err_log.error("nlm timeout after 180s — Gemini로 연구 조사 대체")
+        return _gemini_research_fallback(question)
 
     stdout_text = result.stdout.decode("utf-8", errors="replace").replace("\r\n", "\n")
     stderr_text = result.stderr.decode("utf-8", errors="replace").replace("\r\n", "\n").strip()
@@ -165,8 +177,8 @@ def _run_nlm_sync(question: str) -> str:
     if result.returncode != 0:
         msg = stdout_text.strip() or stderr_text or f"nlm exited with code {result.returncode}"
         _err_log.error(f"nlm failed rc={result.returncode}: {msg[:300]}")
-        _err_log.warning("nlm 실패 — Gemini fallback 시도")
-        return _claude_fallback(question)
+        _err_log.warning("nlm 실패 — Gemini로 연구 조사 대체")
+        return _gemini_research_fallback(question)
 
     answer = stdout_text.strip()
     for sep in ("\nSources:", "\n\nSources:", "\nConversation ID:", "\n\nConversation ID:"):
@@ -180,8 +192,8 @@ def _run_nlm_sync(question: str) -> str:
         answer = ""
 
     if not answer:
-        _err_log.warning("nlm 빈 응답 — Gemini fallback 시도")
-        return _claude_fallback(question)
+        _err_log.warning("nlm 빈 응답 — Gemini로 연구 조사 대체")
+        return _gemini_research_fallback(question)
 
     return answer
 
@@ -413,8 +425,8 @@ async def generate(req: GenerateRequest):
 # Committee Pipeline helpers
 # ---------------------------------------------------------------------------
 
-def _committee_call_claude(sys_prompt: str, user_msg: str,
-                            model: str = "claude-haiku-4-5-20251001",
+def _committee_call_gemini(sys_prompt: str, user_msg: str,
+                            model: str = "gemini",
                             max_tokens: int = 2048) -> str:
     import httpx, time
 
@@ -422,6 +434,7 @@ def _committee_call_claude(sys_prompt: str, user_msg: str,
     if gemini_key:
         for attempt in range(3):
             try:
+                t0 = time.time()
                 resp = httpx.post(
                     f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={gemini_key}",
                     headers={"content-type": "application/json"},
@@ -432,23 +445,67 @@ def _committee_call_claude(sys_prompt: str, user_msg: str,
                     },
                     timeout=120,
                 )
+                elapsed = time.time() - t0
                 if resp.status_code == 200:
                     parts = resp.json()["candidates"][0]["content"]["parts"]
                     text = next((p["text"] for p in parts if "text" in p), "")
                     if text:
+                        _err_log.info(f"[Gemini] {elapsed:.1f}s — {len(text)}자 응답")
                         return text.strip()
-                    _err_log.warning(f"Gemini 빈 응답 (시도 {attempt+1}/3)")
+                    _err_log.warning(f"Gemini 빈 응답 ({elapsed:.1f}s, 시도 {attempt+1}/3)")
                 elif resp.status_code == 503:
-                    _err_log.warning(f"Gemini 503 (시도 {attempt+1}/3), {5*(attempt+1)}초 후 재시도")
+                    _err_log.warning(f"Gemini 503 ({elapsed:.1f}s, 시도 {attempt+1}/3), {5*(attempt+1)}초 후 재시도")
                     time.sleep(5 * (attempt + 1))
                 else:
-                    _err_log.warning(f"Gemini API {resp.status_code}: {resp.text[:200]}")
+                    _err_log.warning(f"Gemini API {resp.status_code} ({elapsed:.1f}s): {resp.text[:200]}")
                     break
             except Exception as e:
                 _err_log.warning(f"Gemini 호출 실패 (시도 {attempt+1}/3): {e}")
                 time.sleep(3)
 
     raise RuntimeError("Gemini API 응답 실패 — 위원회 분석을 완료할 수 없습니다 (잠시 후 재시도)")
+
+
+def _committee_call_claude_cli(sys_prompt: str, user_msg: str,
+                                model: str = "claude",
+                                max_tokens: int = 2048) -> str:
+    """Call Claude via Pro subscription CLI subprocess (no API billing)."""
+    if not CLAUDE_EXE:
+        raise RuntimeError("Claude CLI를 찾을 수 없습니다 (VSCode 확장 설치 필요)")
+
+    full_prompt = (
+        f"[역할 및 지시사항]\n{sys_prompt}\n\n"
+        f"{'='*60}\n\n"
+        f"[분석 자료 및 요청]\n{user_msg}"
+    )
+
+    import time
+    t0 = time.time()
+    # ANTHROPIC_API_KEY가 설정되어 있으면 Claude CLI 자체 인증을 막으므로 제거
+    cli_env = _build_env()
+    cli_env.pop("ANTHROPIC_API_KEY", None)
+    try:
+        result = subprocess.run(
+            [CLAUDE_EXE, "--print", full_prompt],
+            capture_output=True,
+            env=cli_env,
+            timeout=180,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"Claude CLI 응답 시간 초과 (180s, 경과 {time.time()-t0:.0f}s)")
+
+    elapsed = time.time() - t0
+    if result.returncode != 0:
+        err = result.stderr.decode("utf-8", errors="replace").strip()[:300]
+        _err_log.error(f"Claude CLI rc={result.returncode} ({elapsed:.1f}s): {err}")
+        raise RuntimeError(f"Claude CLI 실패: {err or 'unknown error'}")
+
+    output = result.stdout.decode("utf-8", errors="replace").strip()
+    if not output:
+        raise RuntimeError(f"Claude CLI 빈 응답 ({elapsed:.1f}s)")
+
+    _err_log.info(f"[Claude CLI] {elapsed:.1f}s — {len(output)}자 응답")
+    return output
 
 
 def _committee_extract_score(text: str) -> dict:
@@ -505,9 +562,11 @@ def _committee_bullets(text: str, n: int = 6) -> list:
     return out
 
 
-def _committee_phase1(sector: str, results: dict) -> tuple:
+def _committee_phase1(sector: str, results: dict, call_fn=None, workspace_dir: Path = None) -> tuple:
     """Phase 1: 3 reviewers in parallel. Returns (reviews, scores, decisions, disagree, cfg)."""
     from concurrent.futures import ThreadPoolExecutor as _TPE
+    call_fn = call_fn or _committee_call_gemini
+    workspace_dir = workspace_dir or WORKSPACE_DIR
 
     research = f"# 연구 대상\n전문서비스 영역: **{sector}**\n\n"
     for key, info in QUERIES.items():
@@ -519,15 +578,24 @@ def _committee_phase1(sector: str, results: dict) -> tuple:
     )
     user_msg = f"## Research Material\n\n{research}"
 
+    import time as _time
+    def _timed_call(name, prompt):
+        t = _time.time()
+        res = call_fn(prompt, user_msg)
+        _err_log.info(f"[Phase1/{name}] {_time.time()-t:.1f}s")
+        return res
+
+    t1_start = _time.time()
     with _TPE(max_workers=3) as pool:
         futs = {
-            "market":     pool.submit(_committee_call_claude, cfg["market_reviewer"]["prompt"], user_msg),
-            "technology": pool.submit(_committee_call_claude, cfg["technology_reviewer"]["prompt"], user_msg),
-            "business":   pool.submit(_committee_call_claude, cfg["business_reviewer"]["prompt"], user_msg),
+            "market":     pool.submit(_timed_call, "market",     cfg["market_reviewer"]["prompt"]),
+            "technology": pool.submit(_timed_call, "technology", cfg["technology_reviewer"]["prompt"]),
+            "business":   pool.submit(_timed_call, "business",   cfg["business_reviewer"]["prompt"]),
         }
         reviews = {name: fut.result() for name, fut in futs.items()}
+    _err_log.info(f"[Phase1/total-parallel] {_time.time()-t1_start:.1f}s")
 
-    rev_dir = WORKSPACE_DIR / "reviews"
+    rev_dir = workspace_dir / "reviews"
     rev_dir.mkdir(parents=True, exist_ok=True)
     for name, text in reviews.items():
         (rev_dir / f"{name}_review.md").write_text(text, encoding="utf-8")
@@ -544,7 +612,7 @@ def _committee_phase1(sector: str, results: dict) -> tuple:
             "why_it_matters": "Split decision requires committee deliberation.",
         })
 
-    comm_dir = WORKSPACE_DIR / "committee"
+    comm_dir = workspace_dir / "committee"
     comm_dir.mkdir(exist_ok=True)
     (comm_dir / "disagreements.json").write_text(
         json.dumps({
@@ -558,12 +626,15 @@ def _committee_phase1(sector: str, results: dict) -> tuple:
     return reviews, scores, decisions, disagree, cfg
 
 
-def _committee_phase2(sector: str, reviews: dict, disagree: list, cfg: dict) -> tuple:
+def _committee_phase2(sector: str, reviews: dict, disagree: list, cfg: dict,
+                       call_fn=None, workspace_dir: Path = None) -> tuple:
     """Phase 2: Committee discussion (only if disagreements). Returns (discussion, resolution)."""
+    call_fn = call_fn or _committee_call_gemini
+    workspace_dir = workspace_dir or WORKSPACE_DIR
     if not disagree:
         return "", ""
 
-    comm_dir = WORKSPACE_DIR / "committee"
+    comm_dir = workspace_dir / "committee"
     comm_dir.mkdir(exist_ok=True)
 
     disc_sys = (
@@ -578,10 +649,10 @@ def _committee_phase2(sector: str, reviews: dict, disagree: list, cfg: dict) -> 
         f"## 사업 리뷰\n{reviews['business'][:1500]}\n\n"
         f"## 이견\n{json.dumps(disagree, ensure_ascii=False)}"
     )
-    discussion = _committee_call_claude(disc_sys, disc_user)
+    discussion = call_fn(disc_sys, disc_user)
     (comm_dir / "discussion.md").write_text(discussion, encoding="utf-8")
 
-    resolution = _committee_call_claude(
+    resolution = call_fn(
         "위원회 토론을 간략히 요약하고 이견 해소 결과를 정리하세요. 한국어, 마크다운.",
         discussion,
     )
@@ -590,8 +661,11 @@ def _committee_phase2(sector: str, reviews: dict, disagree: list, cfg: dict) -> 
     return discussion, resolution
 
 
-def _committee_phase3(sector: str, reviews: dict, discussion: str, cfg: dict) -> tuple:
+def _committee_phase3(sector: str, reviews: dict, discussion: str, cfg: dict,
+                       call_fn=None, workspace_dir: Path = None) -> tuple:
     """Phase 3: Final decision memo. Returns (memo, final_decision)."""
+    call_fn = call_fn or _committee_call_gemini
+    workspace_dir = workspace_dir or WORKSPACE_DIR
     dec_user = (
         f"## Sector\n{sector}\n\n"
         f"## Market Review\n{reviews['market'][:1500]}\n\n"
@@ -599,11 +673,11 @@ def _committee_phase3(sector: str, reviews: dict, discussion: str, cfg: dict) ->
         f"## Business Review\n{reviews['business'][:1500]}\n\n"
         f"## Committee Discussion\n{discussion[:1000]}"
     )
-    memo = _committee_call_claude(
+    memo = call_fn(
         cfg["decision_maker"]["prompt"], dec_user,
-        model="claude-sonnet-4-5", max_tokens=3000,
+        max_tokens=3000,
     )
-    dec_dir = WORKSPACE_DIR / "decision"
+    dec_dir = workspace_dir / "decision"
     dec_dir.mkdir(exist_ok=True)
     (dec_dir / "investment_memo.md").write_text(memo, encoding="utf-8")
 
@@ -612,7 +686,8 @@ def _committee_phase3(sector: str, reviews: dict, discussion: str, cfg: dict) ->
 
 
 def _committee_phase4(sector: str, results: dict, reviews: dict, scores: dict,
-                       decisions: dict, final_decision: str, memo: str) -> str:
+                       decisions: dict, final_decision: str, memo: str,
+                       workspace_dir: Path = None) -> str:
     """Phase 4: Build slides_data.json and render committee PPTX. Returns pptx filename."""
     slides = []
     label_map = {"A": f"NeoFirm × {sector}", "B": "AI-전문가 작업 배분", "C": "1페이지 투자메모", "D": "문제정의문"}
@@ -632,7 +707,8 @@ def _committee_phase4(sector: str, results: dict, reviews: dict, scores: dict,
         "slides": slides,
     }
 
-    pres_dir = WORKSPACE_DIR / "presentation"
+    workspace_dir = workspace_dir or WORKSPACE_DIR
+    pres_dir = workspace_dir / "presentation"
     pres_dir.mkdir(exist_ok=True)
     (pres_dir / "slides_data.json").write_text(
         json.dumps(slides_data, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -651,21 +727,392 @@ def _committee_phase4(sector: str, results: dict, reviews: dict, scores: dict,
     pptx_path = pres_dir / f"final_{safe}_{ts}.pptx"
     mod.render(slides_data, pptx_path)
 
+    # output/ 에도 복사하여 /api/download/{filename}으로 접근 가능하게
+    import shutil as _sh
+    output_copy = OUTPUT_DIR / pptx_path.name
+    _sh.copy2(pptx_path, output_copy)
+    _err_log.info(f"Committee PPTX copied to output: {output_copy}")
+
     return pptx_path.name
 
 
-@app.get("/api/workspace")
-async def workspace():
-    """Return all Task 2 pipeline artifacts as JSON."""
-    def read(rel: str) -> str:
-        p = WORKSPACE_DIR / rel
-        if p.exists():
-            return p.read_text(encoding="utf-8")
-        return ""
+# ---------------------------------------------------------------------------
+# Comparison report helper
+# ---------------------------------------------------------------------------
 
-    # find latest PPTX in workspace/presentation/
+def _generate_comparison_report(sector: str, gemini_data: dict, claude_data: dict) -> dict:
+    """Compare Gemini and Claude committee results. Returns {report_md, comparison_json}."""
+    comp_sys = (
+        "당신은 두 AI 투자 위원회의 결과를 중립적으로 비교 분석하는 전문가입니다. "
+        "근거의 질, 논리적 일관성, 위험 식별 능력을 기준으로 평가하세요. "
+        "어느 모델이 더 정확하다고 가정하지 마세요. 한국어 마크다운으로 작성하세요."
+    )
+    comp_user = (
+        f"## 분석 대상 섹터\n{sector}\n\n"
+        f"## Gemini 위원회 결과\n"
+        f"- 최종 판단: **{gemini_data.get('decision', 'N/A')}**\n"
+        f"- 리뷰어 판단: {gemini_data.get('decisions_by_reviewer', {})}\n"
+        f"- 투자 메모 (첫 1000자):\n{gemini_data.get('memo', '')[:1000]}\n\n"
+        f"## Claude 위원회 결과\n"
+        f"- 최종 판단: **{claude_data.get('decision', 'N/A')}**\n"
+        f"- 리뷰어 판단: {claude_data.get('decisions_by_reviewer', {})}\n"
+        f"- 투자 메모 (첫 1000자):\n{claude_data.get('memo', '')[:1000]}\n\n"
+        f"## 비교 분석 요청\n"
+        f"1. 투자 결정 비교 (일치/불일치, 이유)\n"
+        f"2. 강세 논거 비교\n"
+        f"3. 약세 논거 비교\n"
+        f"4. 재무·리스크 분석 비교\n"
+        f"5. 근거 품질 평가\n"
+        f"6. 추론 방식의 차이점\n"
+        f"7. 종합 결론"
+    )
+    report_md = _committee_call_gemini(comp_sys, comp_user, max_tokens=3000)
+
+    comp_dir = OUTPUT_DIR / "comparison"
+    comp_dir.mkdir(exist_ok=True)
+    (comp_dir / "comparison_report.md").write_text(report_md, encoding="utf-8")
+
+    comp_json = {
+        "sector": sector,
+        "gemini_decision": gemini_data.get("decision"),
+        "claude_decision": claude_data.get("decision"),
+        "decisions_agree": gemini_data.get("decision") == claude_data.get("decision"),
+        "generated_at": datetime.now().isoformat(),
+    }
+    (comp_dir / "comparison.json").write_text(
+        json.dumps(comp_json, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return {"report_md": report_md, "comparison": comp_json}
+
+
+# ---------------------------------------------------------------------------
+# Shared committee pipeline runner (used by both /generate-claude and /generate-both)
+# ---------------------------------------------------------------------------
+
+async def _run_committee_pipeline(sector: str, results: dict, call_fn, workspace_dir: Path,
+                                   yield_fn, label: str = "") -> dict:
+    """Run phases 1-4 and yield SSE events via yield_fn. Returns {decision, memo, pptx_filename}."""
+    from functools import partial
+    loop = asyncio.get_event_loop()
+
+    p1 = partial(_committee_phase1, call_fn=call_fn, workspace_dir=workspace_dir)
+    p2 = partial(_committee_phase2, call_fn=call_fn, workspace_dir=workspace_dir)
+    p3 = partial(_committee_phase3, call_fn=call_fn, workspace_dir=workspace_dir)
+    p4 = partial(_committee_phase4, workspace_dir=workspace_dir)
+
+    prefix = f"{label}: " if label else ""
+
+    await yield_fn(f"data: {json.dumps({'type': 'committee_progress', 'wf_step': 2, 'status': 'run', 'message': f'{prefix}시장·기술·사업 리뷰어 독립 평가 중…'}, ensure_ascii=False)}\n\n")
+    reviews, scores, decisions, disagree, cfg = await loop.run_in_executor(_executor, p1, sector, results)
+    await yield_fn(f"data: {json.dumps({'type': 'committee_progress', 'wf_step': 2, 'status': 'done', 'message': f'{prefix}리뷰어 평가 완료'}, ensure_ascii=False)}\n\n")
+    await yield_fn(f"data: {json.dumps({'type': 'committee_progress', 'wf_step': 3, 'status': 'done', 'message': f'이견 {len(disagree)}건 감지'}, ensure_ascii=False)}\n\n")
+
+    if disagree:
+        await yield_fn(f"data: {json.dumps({'type': 'committee_progress', 'wf_step': 4, 'status': 'run', 'message': f'{prefix}AI 위원회 토론 진행 중…'}, ensure_ascii=False)}\n\n")
+        discussion, resolution = await loop.run_in_executor(_executor, p2, sector, reviews, disagree, cfg)
+        await yield_fn(f"data: {json.dumps({'type': 'committee_progress', 'wf_step': 4, 'status': 'done', 'message': f'{prefix}AI 토론 완료'}, ensure_ascii=False)}\n\n")
+    else:
+        discussion, resolution = "", ""
+        await yield_fn(f"data: {json.dumps({'type': 'committee_progress', 'wf_step': 4, 'status': 'skip', 'message': '이견 없음 — 토론 생략'}, ensure_ascii=False)}\n\n")
+
+    await yield_fn(f"data: {json.dumps({'type': 'committee_progress', 'wf_step': 5, 'status': 'run', 'message': f'{prefix}최종 투자 판단 작성 중…'}, ensure_ascii=False)}\n\n")
+    memo, final_decision = await loop.run_in_executor(_executor, p3, sector, reviews, discussion, cfg)
+    await yield_fn(f"data: {json.dumps({'type': 'committee_progress', 'wf_step': 5, 'status': 'done', 'message': f'{prefix}최종 판단: {final_decision}'}, ensure_ascii=False)}\n\n")
+
+    await yield_fn(f"data: {json.dumps({'type': 'committee_progress', 'wf_step': 6, 'status': 'run', 'message': f'{prefix}PPT 생성 중…'}, ensure_ascii=False)}\n\n")
+    pptx_filename = await loop.run_in_executor(_executor, p4, sector, results, reviews, scores, decisions, final_decision, memo)
+    await yield_fn(f"data: {json.dumps({'type': 'committee_progress', 'wf_step': 6, 'status': 'done', 'message': f'{prefix}PPT 완료'}, ensure_ascii=False)}\n\n")
+
+    return {
+        "decision": final_decision,
+        "memo": memo,
+        "pptx_filename": pptx_filename,
+        "decisions_by_reviewer": decisions,
+        "scores_by_reviewer": scores,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Claude-only generate endpoint
+# ---------------------------------------------------------------------------
+
+@app.post("/api/generate-claude")
+async def generate_claude(req: GenerateRequest):
+    """Same as /api/generate but committee uses Claude Pro subscription CLI."""
+    sector = req.sector.strip()
+    if not sector:
+        raise HTTPException(400, "전문서비스 영역을 입력해주세요")
+    if not CLAUDE_EXE:
+        raise HTTPException(503, "Claude CLI를 찾을 수 없습니다 (VSCode 확장 필요)")
+
+    results: dict = {}
+    events_queue: list = []
+
+    async def _yld(ev: str):
+        events_queue.append(ev)
+
+    async def stream():
+        for sub in ["reviews", "committee", "decision", "presentation", "research", "criteria", "logs"]:
+            p = WORKSPACE_DIR_CLAUDE / sub
+            if p.exists():
+                import shutil as _ws_shutil
+                _ws_shutil.rmtree(p, ignore_errors=True)
+        WORKSPACE_DIR_CLAUDE.mkdir(parents=True, exist_ok=True)
+
+        yield f"data: {json.dumps({'type': 'workspace_clear'}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'type': 'start', 'sector': sector, 'engine': 'claude'}, ensure_ascii=False)}\n\n"
+
+        # Research phase (shared: NLM / Gemini fallback)
+        for key, info in QUERIES.items():
+            yield f"data: {json.dumps({'type': 'progress', 'key': key, 'status': 'running'}, ensure_ascii=False)}\n\n"
+            try:
+                question = info["question"].format(sector=sector)
+                answer = await run_nlm_query(question)
+                results[key] = answer
+                (OUTPUT_DIR / f"{key}_{info['step']}.md").write_text(
+                    f"# {info['title']}\n\n**영역:** {sector}\n\n---\n\n{answer}", encoding="utf-8"
+                )
+                yield f"data: {json.dumps({'type': 'result', 'key': key, 'title': info['title'], 'content': answer}, ensure_ascii=False)}\n\n"
+            except Exception as e:
+                msg = str(e) or type(e).__name__
+                _err_log.error(f"[{key}] {msg}\n{traceback.format_exc()}")
+                yield f"data: {json.dumps({'type': 'error', 'key': key, 'message': msg}, ensure_ascii=False)}\n\n"
+
+        if not results:
+            yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+            return
+
+        # Research PPTX
+        try:
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+            pptx_path = await asyncio.get_event_loop().run_in_executor(_executor, _build_pptx, sector, results, ts)
+            yield f"data: {json.dumps({'type': 'pptx', 'filename': pptx_path.name}, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            _err_log.error(f"PPTX error: {e}")
+
+        # Claude committee — asyncio.Queue for real-time event streaming
+        yield f"data: {json.dumps({'type': 'committee_start', 'engine': 'claude'}, ensure_ascii=False)}\n\n"
+        try:
+            q: asyncio.Queue = asyncio.Queue()
+
+            async def _yld_q(ev: str):
+                await q.put(ev)
+
+            pipeline_task = asyncio.ensure_future(
+                _run_committee_pipeline(sector, results, _committee_call_claude_cli, WORKSPACE_DIR_CLAUDE, _yld_q, label="Claude")
+            )
+            _ka_t = asyncio.get_event_loop().time()
+            while not pipeline_task.done():
+                try:
+                    ev = await asyncio.wait_for(q.get(), timeout=0.3)
+                    yield ev
+                    _ka_t = asyncio.get_event_loop().time()
+                except asyncio.TimeoutError:
+                    now = asyncio.get_event_loop().time()
+                    if now - _ka_t >= 15:
+                        yield ": keepalive\n\n"
+                        _ka_t = now
+            claude_result = await pipeline_task
+            while not q.empty():
+                yield await q.get()
+
+            yield f"data: {json.dumps({'type': 'committee_done', 'engine': 'claude', 'decision': claude_result['decision'], 'pptx_filename': claude_result['pptx_filename'], 'memo_preview': claude_result['memo'][:300]}, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            _err_log.error(f"Claude committee failed: {e}\n{traceback.format_exc()}")
+            yield f"data: {json.dumps({'type': 'committee_error', 'engine': 'claude', 'message': str(e)}, ensure_ascii=False)}\n\n"
+
+        yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream; charset=utf-8",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Both-engines comparison endpoint
+# ---------------------------------------------------------------------------
+
+@app.post("/api/generate-both")
+async def generate_both(req: GenerateRequest):
+    """Run Gemini + Claude committees on shared research, then produce comparison report."""
+    sector = req.sector.strip()
+    if not sector:
+        raise HTTPException(400, "전문서비스 영역을 입력해주세요")
+    if not CLAUDE_EXE:
+        raise HTTPException(503, "Claude CLI를 찾을 수 없습니다")
+
+    results: dict = {}
+
+    async def stream():
+        # Clear both workspaces
+        for ws in [WORKSPACE_DIR, WORKSPACE_DIR_CLAUDE]:
+            for sub in ["reviews", "committee", "decision", "presentation", "research", "criteria", "logs"]:
+                p = ws / sub
+                if p.exists():
+                    import shutil as _ws_shutil
+                    _ws_shutil.rmtree(p, ignore_errors=True)
+            ws.mkdir(parents=True, exist_ok=True)
+
+        yield f"data: {json.dumps({'type': 'workspace_clear'}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'type': 'start', 'sector': sector, 'engine': 'both'}, ensure_ascii=False)}\n\n"
+
+        # Research phase
+        for key, info in QUERIES.items():
+            yield f"data: {json.dumps({'type': 'progress', 'key': key, 'status': 'running'}, ensure_ascii=False)}\n\n"
+            try:
+                question = info["question"].format(sector=sector)
+                answer = await run_nlm_query(question)
+                results[key] = answer
+                (OUTPUT_DIR / f"{key}_{info['step']}.md").write_text(
+                    f"# {info['title']}\n\n**영역:** {sector}\n\n---\n\n{answer}", encoding="utf-8"
+                )
+                yield f"data: {json.dumps({'type': 'result', 'key': key, 'title': info['title'], 'content': answer}, ensure_ascii=False)}\n\n"
+            except Exception as e:
+                msg = str(e) or type(e).__name__
+                yield f"data: {json.dumps({'type': 'error', 'key': key, 'message': msg}, ensure_ascii=False)}\n\n"
+
+        if not results:
+            yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+            return
+
+        # Research PPTX
+        try:
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+            pptx_path = await asyncio.get_event_loop().run_in_executor(_executor, _build_pptx, sector, results, ts)
+            yield f"data: {json.dumps({'type': 'pptx', 'filename': pptx_path.name}, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            _err_log.error(f"PPTX error: {e}")
+
+        gemini_result = None
+        claude_result = None
+
+        # ── Gemini committee — real-time streaming via Queue ────────
+        yield f"data: {json.dumps({'type': 'committee_start', 'engine': 'gemini'}, ensure_ascii=False)}\n\n"
+        try:
+            q_g: asyncio.Queue = asyncio.Queue()
+            async def _yld_g(ev): await q_g.put(ev)
+            task_g = asyncio.ensure_future(
+                _run_committee_pipeline(sector, results, _committee_call_gemini, WORKSPACE_DIR, _yld_g, label="Gemini")
+            )
+            _ka_g = asyncio.get_event_loop().time()
+            while not task_g.done():
+                try:
+                    ev_g = await asyncio.wait_for(q_g.get(), timeout=0.3)
+                    yield ev_g
+                    _ka_g = asyncio.get_event_loop().time()
+                except asyncio.TimeoutError:
+                    now = asyncio.get_event_loop().time()
+                    if now - _ka_g >= 15:
+                        yield ": keepalive\n\n"
+                        _ka_g = now
+            gemini_result = await task_g
+            while not q_g.empty():
+                yield await q_g.get()
+            yield f"data: {json.dumps({'type': 'committee_done', 'engine': 'gemini', 'decision': gemini_result['decision'], 'pptx_filename': gemini_result['pptx_filename'], 'memo_preview': gemini_result['memo'][:300]}, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            _err_log.error(f"Gemini committee failed: {e}\n{traceback.format_exc()}")
+            yield f"data: {json.dumps({'type': 'committee_error', 'engine': 'gemini', 'message': str(e)}, ensure_ascii=False)}\n\n"
+
+        # ── Claude committee — real-time streaming via Queue ─────────
+        yield f"data: {json.dumps({'type': 'committee_start', 'engine': 'claude'}, ensure_ascii=False)}\n\n"
+        try:
+            q_c: asyncio.Queue = asyncio.Queue()
+            async def _yld_c(ev): await q_c.put(ev)
+            task_c = asyncio.ensure_future(
+                _run_committee_pipeline(sector, results, _committee_call_claude_cli, WORKSPACE_DIR_CLAUDE, _yld_c, label="Claude")
+            )
+            _ka_c = asyncio.get_event_loop().time()
+            while not task_c.done():
+                try:
+                    ev_c = await asyncio.wait_for(q_c.get(), timeout=0.3)
+                    yield ev_c
+                    _ka_c = asyncio.get_event_loop().time()
+                except asyncio.TimeoutError:
+                    now = asyncio.get_event_loop().time()
+                    if now - _ka_c >= 15:
+                        yield ": keepalive\n\n"
+                        _ka_c = now
+            claude_result = await task_c
+            while not q_c.empty():
+                yield await q_c.get()
+            yield f"data: {json.dumps({'type': 'committee_done', 'engine': 'claude', 'decision': claude_result['decision'], 'pptx_filename': claude_result['pptx_filename'], 'memo_preview': claude_result['memo'][:300]}, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            _err_log.error(f"Claude committee failed: {e}\n{traceback.format_exc()}")
+            yield f"data: {json.dumps({'type': 'committee_error', 'engine': 'claude', 'message': str(e)}, ensure_ascii=False)}\n\n"
+
+        # ── Comparison ──────────────────────────────────────────────
+        if gemini_result and claude_result:
+            yield f"data: {json.dumps({'type': 'comparison_start'}, ensure_ascii=False)}\n\n"
+            try:
+                loop = asyncio.get_event_loop()
+                comp = await loop.run_in_executor(
+                    _executor, _generate_comparison_report, sector, gemini_result, claude_result
+                )
+                yield f"data: {json.dumps({'type': 'comparison_done', 'gemini_decision': comp['comparison']['gemini_decision'], 'claude_decision': comp['comparison']['claude_decision'], 'decisions_agree': comp['comparison']['decisions_agree']}, ensure_ascii=False)}\n\n"
+            except Exception as e:
+                _err_log.error(f"Comparison failed: {e}")
+                yield f"data: {json.dumps({'type': 'comparison_error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+
+        yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream; charset=utf-8",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/api/comparison")
+async def get_comparison():
+    """Return the latest comparison report and JSON."""
+    comp_dir = OUTPUT_DIR / "comparison"
+    report = ""
+    comp_json = {}
+    if (comp_dir / "comparison_report.md").exists():
+        report = (comp_dir / "comparison_report.md").read_text(encoding="utf-8")
+    if (comp_dir / "comparison.json").exists():
+        try:
+            comp_json = json.loads((comp_dir / "comparison.json").read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    # Claude workspace PPTX
+    claude_pptx = None
+    pptx_dir = WORKSPACE_DIR_CLAUDE / "presentation"
+    if pptx_dir.exists():
+        pptxs = sorted(pptx_dir.glob("*.pptx"), key=lambda f: f.stat().st_mtime, reverse=True)
+        if pptxs:
+            claude_pptx = pptxs[0].name
+
+    return {"report": report, "comparison": comp_json, "claude_pptx": claude_pptx}
+
+
+@app.get("/api/workspace-claude/download")
+async def workspace_claude_download():
+    """Download the latest Claude committee PPTX."""
+    pptx_dir = WORKSPACE_DIR_CLAUDE / "presentation"
+    if not pptx_dir.exists():
+        raise HTTPException(404, "Claude PPTX 없음")
+    pptxs = sorted(pptx_dir.glob("*.pptx"), key=lambda f: f.stat().st_mtime, reverse=True)
+    if not pptxs:
+        raise HTTPException(404, "PPTX 파일 없음")
+    return FileResponse(
+        pptxs[0],
+        filename="neofirm_claude_report.pptx",
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    )
+
+
+def _read_workspace(ws_dir: Path) -> dict:
+    """Read workspace artifacts from the given directory and return as dict."""
+    def read(rel: str) -> str:
+        p = ws_dir / rel
+        return p.read_text(encoding="utf-8") if p.exists() else ""
+
     pptx_file = None
-    pptx_dir = WORKSPACE_DIR / "presentation"
+    pptx_dir = ws_dir / "presentation"
     if pptx_dir.exists():
         pptxs = sorted(pptx_dir.glob("*.pptx"), key=lambda f: f.stat().st_mtime, reverse=True)
         if pptxs:
@@ -677,10 +1124,9 @@ async def workspace():
     except Exception:
         disagreements = {}
 
-    # sector + decision from slides_data.json
     sector = ""
     slides_decision = ""
-    slides_json_path = WORKSPACE_DIR / "presentation" / "slides_data.json"
+    slides_json_path = ws_dir / "presentation" / "slides_data.json"
     if slides_json_path.exists():
         try:
             slides_data = json.loads(slides_json_path.read_text(encoding="utf-8"))
@@ -690,19 +1136,31 @@ async def workspace():
             pass
 
     return {
-        "sector":              sector,
-        "slides_decision":     slides_decision,
+        "sector": sector,
+        "slides_decision": slides_decision,
         "reviews": {
             "market":     read("reviews/market_review.md"),
             "technology": read("reviews/technology_review.md"),
             "business":   read("reviews/business_review.md"),
         },
-        "disagreements":       disagreements,
+        "disagreements":        disagreements,
         "committee_discussion": read("committee/discussion.md"),
-        "resolution":          read("committee/resolution.md"),
-        "investment_memo":     read("decision/investment_memo.md"),
-        "pptx_filename":       pptx_file,
+        "resolution":           read("committee/resolution.md"),
+        "investment_memo":      read("decision/investment_memo.md"),
+        "pptx_filename":        pptx_file,
     }
+
+
+@app.get("/api/workspace")
+async def workspace():
+    """Return all Task 2 pipeline artifacts as JSON (Gemini workspace)."""
+    return _read_workspace(WORKSPACE_DIR)
+
+
+@app.get("/api/workspace-claude/data")
+async def workspace_claude_data():
+    """Return all Task 2 pipeline artifacts as JSON (Claude workspace)."""
+    return _read_workspace(WORKSPACE_DIR_CLAUDE)
 
 
 @app.get("/api/workspace/download")
