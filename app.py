@@ -114,7 +114,7 @@ def _gemini_research_fallback(question: str) -> str:
         for attempt in range(3):
             try:
                 resp = httpx.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={gemini_key}",
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}",
                     headers={"content-type": "application/json"},
                     json={
                         "contents": [{"parts": [{"text": question}]}],
@@ -436,7 +436,7 @@ def _committee_call_gemini(sys_prompt: str, user_msg: str,
             try:
                 t0 = time.time()
                 resp = httpx.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={gemini_key}",
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}",
                     headers={"content-type": "application/json"},
                     json={
                         "system_instruction": {"parts": [{"text": sys_prompt}]},
