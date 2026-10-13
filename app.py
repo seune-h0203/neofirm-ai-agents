@@ -197,6 +197,141 @@ def _prefetch_nlm_csrf() -> str | None:
         return None
 
 
+async def _nlm_query_async(question: str, notebook_id: str) -> str:
+    """
+    Query NotebookLM directly via async httpx — bypasses the NLM library's
+    synchronous httpx client which fails on Railway.
+    Returns the answer text or raises RuntimeError.
+    """
+    import re
+    import urllib.parse
+    import httpx
+
+    try:
+        from platformdirs import user_data_dir as _udd
+        profile_dir = Path(_udd("nlm", ensure_exists=False)) / "profiles" / "default"
+    except ImportError:
+        profile_dir = Path.home() / ".local" / "share" / "nlm" / "nlm" / "profiles" / "default"
+
+    cookies_path = profile_dir / "cookies.json"
+    if not cookies_path.exists():
+        raise RuntimeError("NLM cookies not found — set NLM_COOKIES_JSON env var")
+
+    cookies = json.loads(cookies_path.read_text(encoding="utf-8"))
+    cookie_str = "; ".join(f"{k}={v}" for k, v in cookies.items())
+
+    base_headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Cookie": cookie_str,
+    }
+    rpc_headers = {
+        **base_headers,
+        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        "Origin": "https://notebook.google.com",
+        "Referer": "https://notebook.google.com/",
+        "X-Same-Domain": "1",
+    }
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        # Step 1: Get fresh CSRF and bl from notebook.google.com
+        page_resp = await client.get("https://notebook.google.com/", headers=base_headers,
+                                     follow_redirects=True)
+        if "accounts.google.com" in str(page_resp.url) or page_resp.status_code != 200:
+            raise RuntimeError(f"NLM auth: redirected to {page_resp.url}")
+        html = page_resp.text
+        csrf_m = re.search(r'"SNlM0e":"([^"]+)"', html)
+        sid_m = re.search(r'"FdrFJe":"([^"]+)"', html)
+        bl_m = re.search(r'"(boq_labs-tailwind-frontend_[^"]+)"', html)
+        csrf = csrf_m.group(1) if csrf_m else ""
+        session_id = sid_m.group(1) if sid_m else ""
+        bl = bl_m.group(1) if bl_m else os.environ.get("NOTEBOOKLM_BL", "boq_labs-tailwind-frontend_20261011.03_p0")
+
+        def _make_body(rpc_id: str, params: object, extra_csrf: str = "") -> str:
+            p = json.dumps(params, separators=(',', ':'))
+            f_req = json.dumps([[[rpc_id, p, None, "generic"]]], separators=(',', ':'))
+            parts = [f"f.req={urllib.parse.quote(f_req, safe='')}"]
+            _c = extra_csrf or csrf
+            if _c:
+                parts.append(f"at={urllib.parse.quote(_c, safe='')}")
+            return "&".join(parts) + "&"
+
+        def _make_url(rpc_id: str, source_path: str = "/") -> str:
+            p = {"rpcids": rpc_id, "source-path": source_path,
+                 "bl": bl, "hl": "en", "rt": "c"}
+            if session_id:
+                p["f.sid"] = session_id
+            return f"https://notebook.google.com/_/LabsTailwindUi/data/batchexecute?{urllib.parse.urlencode(p)}"
+
+        # Step 2: Get notebook sources (GET_NOTEBOOK RPC)
+        nb_resp = await client.post(
+            _make_url("rLM1Ne", f"/notebook/{notebook_id}"),
+            content=_make_body("rLM1Ne", [notebook_id, None, [2], None, 0]),
+            headers=rpc_headers,
+        )
+        source_ids = []
+        if nb_resp.status_code == 200:
+            # Parse batchexecute response for source IDs
+            for line in nb_resp.text.split("\n"):
+                try:
+                    chunk = json.loads(line)
+                    if isinstance(chunk, list):
+                        for item in chunk:
+                            if isinstance(item, list) and len(item) >= 3 and item[0] == "wrb.fr" and item[1] == "rLM1Ne":
+                                nb_data = json.loads(item[2]) if isinstance(item[2], str) else item[2]
+                                if isinstance(nb_data, list) and nb_data:
+                                    inner = nb_data[0]
+                                    if isinstance(inner, list) and len(inner) > 2:
+                                        sources = inner[2] or []
+                                        source_ids = [s[0] for s in sources if isinstance(s, list) and s]
+                except Exception:
+                    pass
+
+        # Step 3: Query the notebook
+        import uuid
+        import random
+        conversation_id = str(uuid.uuid4())
+        sources_array = [[[sid]] for sid in source_ids] if source_ids else []
+        q_params = [sources_array, question, None, [2, None, [1]], conversation_id]
+        q_params_json = json.dumps(q_params, separators=(',', ':'))
+        f_req_q = json.dumps([None, q_params_json], separators=(',', ':'))
+        q_body_parts = [f"f.req={urllib.parse.quote(f_req_q, safe='')}"]
+        if csrf:
+            q_body_parts.append(f"at={urllib.parse.quote(csrf, safe='')}")
+        q_body = "&".join(q_body_parts) + "&"
+        q_url_p = {"bl": bl, "hl": "en", "_reqid": str(random.randint(100000, 999999)), "rt": "c"}
+        if session_id:
+            q_url_p["f.sid"] = session_id
+        q_endpoint = "/_/LabsTailwindUi/data/google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService/GenerateFreeFormStreamed"
+        q_url = f"https://notebook.google.com{q_endpoint}?{urllib.parse.urlencode(q_url_p)}"
+
+        q_resp = await client.post(q_url, content=q_body, headers=rpc_headers, timeout=90)
+        q_resp.raise_for_status()
+
+        # Parse streaming response
+        answer_parts = []
+        for line in q_resp.text.split("\n"):
+            try:
+                data = json.loads(line)
+                if isinstance(data, list):
+                    for item in data:
+                        if isinstance(item, list) and len(item) >= 3 and item[1] == "GenerateFreeFormStreamed":
+                            inner = json.loads(item[2]) if isinstance(item[2], str) else item[2]
+                            if isinstance(inner, list) and inner and isinstance(inner[0], list):
+                                for chunk in inner[0]:
+                                    if isinstance(chunk, list) and chunk and isinstance(chunk[0], str):
+                                        answer_parts.append(chunk[0])
+            except Exception:
+                pass
+
+        if answer_parts:
+            return "".join(answer_parts).strip()
+        # Fallback: raw text extraction
+        raw = q_resp.text
+        if len(raw) > 100:
+            return f"[raw] {raw[:800]}"
+        raise RuntimeError(f"NLM returned empty answer (status {q_resp.status_code})")
+
+
 _inject_nlm_cookies()
 _prefetch_nlm_csrf()
 NLM = _find_nlm()
@@ -320,7 +455,17 @@ def _run_nlm_sync(question: str) -> str:
 
 
 async def run_nlm_query(question: str) -> str:
-    """Async wrapper — delegates to thread pool to avoid Windows SelectorEventLoop limitation."""
+    """Query NotebookLM. On Linux uses direct async httpx; on Windows uses subprocess."""
+    if platform.system() != "Windows" and os.environ.get("NLM_COOKIES_JSON"):
+        try:
+            return await asyncio.wait_for(
+                _nlm_query_async(question, NOTEBOOK_ID),
+                timeout=120,
+            )
+        except Exception as e:
+            _err_log.warning(f"NLM async query failed: {e} — Gemini로 대체")
+            return _gemini_research_fallback(question)
+    # Windows / no cookies: subprocess path
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(_executor, _run_nlm_sync, question)
 
