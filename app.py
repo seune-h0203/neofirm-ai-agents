@@ -184,9 +184,14 @@ def _prefetch_nlm_csrf() -> str | None:
             return None
         html = resp.text
         csrf_match = re.search(r'"SNlM0e":"([^"]+)"', html)
+        # Fallback: newer NotebookLM uses WZsZ1e as the batchexecute CSRF key
+        if not csrf_match:
+            csrf_match = re.search(r'"WZsZ1e":"([^"]{10,})"', html)
         sid_match = re.search(r'"FdrFJe":"([^"]+)"', html)
         # Extract current bl (build label) so API requests use correct version
-        bl_match = re.search(r'"([^"]*boq_labs-tailwind-frontend_[^"]+)"', html)
+        bl_match = re.search(r'"KjTSIf":"([^"]*boq_labs-tailwind-frontend_[^"]+)"', html)
+        if not bl_match:
+            bl_match = re.search(r'"([^"]*boq_labs-tailwind-frontend_[^"]+)"', html)
         new_csrf = csrf_match.group(1) if csrf_match else None
         new_sid = sid_match.group(1) if sid_match else ""
         new_bl = bl_match.group(1) if bl_match else None
@@ -830,7 +835,11 @@ async def debug_csrf_prefetch():
             resp = await client.get("https://notebook.google.com/", headers=headers)
         html = resp.text
         csrf_m = re.search(r'"SNlM0e":"([^"]+)"', html)
-        bl_m = re.search(r'"([^"]*boq_labs-tailwind-frontend_[^"]+)"', html)
+        if not csrf_m:
+            csrf_m = re.search(r'"WZsZ1e":"([^"]{10,})"', html)
+        bl_m = re.search(r'"KjTSIf":"([^"]*boq_labs-tailwind-frontend_[^"]+)"', html)
+        if not bl_m:
+            bl_m = re.search(r'"([^"]*boq_labs-tailwind-frontend_[^"]+)"', html)
         # Extract full WIZ_global_data to find CSRF key
         wiz_m = re.search(r'window\.WIZ_global_data\s*=\s*(\{.*?\})\s*;', html, re.DOTALL)
         wiz_data = {}
