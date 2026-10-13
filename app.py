@@ -225,8 +225,8 @@ def _parse_nlm_answer(response_text: str) -> str:
                 answers.append(text.strip())
             except (ValueError, TypeError, IndexError):
                 continue
-    # Combine all answer chunks; streaming responses deliver text in multiple frames
-    return "".join(answers) if answers else ""
+    # The installed NotebookLM client selects the final completed answer frame.
+    return answers[-1] if answers else ""
 
 
 async def _nlm_query_async(question: str, notebook_id: str) -> str:
@@ -626,7 +626,7 @@ async def _with_run_status(stream, expected_committees: int = 1, require_compari
         yield chunk
 
 
-app = FastAPI(title="NeoFirm Generator")
+app = FastAPI(title="NeoFirm Generator", version="2026.10.13.2")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
@@ -879,6 +879,68 @@ async def test_nlm_async():
     except Exception as e:
         import traceback
         return {"status": "error", "error": str(e), "traceback": traceback.format_exc()[-1200:]}
+
+
+@app.get("/api/debug-nlm-sources")
+async def debug_nlm_sources():
+    """개발용: GET_NOTEBOOK batchexecute 응답 파싱 단계 디버그."""
+    import re, urllib.parse, httpx
+    try:
+        from platformdirs import user_data_dir as _udd
+        profile_dir = Path(_udd("nlm", ensure_exists=False)) / "profiles" / "default"
+    except ImportError:
+        profile_dir = Path.home() / ".local" / "share" / "nlm" / "nlm" / "profiles" / "default"
+    cookies_path = profile_dir / "cookies.json"
+    if not cookies_path.exists():
+        return {"error": "no cookies"}
+    cookies = json.loads(cookies_path.read_text())
+    cookie_str = "; ".join(f"{k}={v}" for k, v in cookies.items())
+    base_headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36", "Cookie": cookie_str}
+    async with httpx.AsyncClient(timeout=30) as client:
+        page = await client.get("https://notebook.google.com/", headers=base_headers, follow_redirects=True)
+        redirected = "accounts.google.com" in str(page.url) or page.status_code != 200
+        html = page.text
+        csrf_m = re.search(r'"SNlM0e":"([^"]+)"', html)
+        sid_m = re.search(r'"FdrFJe":"([^"]+)"', html)
+        bl_m = re.search(r'"(boq_labs-tailwind-frontend_[^"]+)"', html)
+        csrf = csrf_m.group(1) if csrf_m else ""
+        session_id = sid_m.group(1) if sid_m else ""
+        bl = bl_m.group(1) if bl_m else os.environ.get("NOTEBOOKLM_BL", "")
+        rpc_headers = {**base_headers, "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                       "Origin": "https://notebook.google.com", "Referer": "https://notebook.google.com/", "X-Same-Domain": "1"}
+        p = json.dumps([NOTEBOOK_ID, None, [2], None, 0], separators=(',', ':'))
+        f_req = json.dumps([[["rLM1Ne", p, None, "generic"]]], separators=(',', ':'))
+        url_p = {"rpcids": "rLM1Ne", "source-path": f"/notebook/{NOTEBOOK_ID}", "bl": bl, "hl": "en", "rt": "c"}
+        if session_id:
+            url_p["f.sid"] = session_id
+        body = f"f.req={urllib.parse.quote(f_req, safe='')}"
+        if csrf:
+            body += f"&at={urllib.parse.quote(csrf, safe='')}"
+        body += "&"
+        nb = await client.post(f"https://notebook.google.com/_/LabsTailwindUi/data/batchexecute?{urllib.parse.urlencode(url_p)}",
+                               content=body, headers=rpc_headers)
+        lines = nb.text.split("\n")
+        parsed_lines = []
+        source_ids_found = []
+        for line in lines:
+            try:
+                d = json.loads(line)
+                parsed_lines.append({"type": type(d).__name__, "preview": str(d)[:200]})
+                if isinstance(d, list):
+                    for item in d:
+                        if isinstance(item, list) and len(item) >= 3 and item[0] == "wrb.fr":
+                            parsed_lines.append({"found_wrb_fr": True, "rpc_id": item[1], "item2_type": type(item[2]).__name__, "item2_preview": str(item[2])[:300]})
+                            if item[1] == "rLM1Ne" and isinstance(item[2], str):
+                                result = json.loads(item[2])
+                                nb_entry = result[0] if result else None
+                                if nb_entry and len(nb_entry) > 1:
+                                    for s in nb_entry[1]:
+                                        if isinstance(s, list) and s and isinstance(s[0], list) and s[0]:
+                                            source_ids_found.append(s[0][0])
+            except Exception:
+                pass
+        return {"page_ok": not redirected, "page_url": str(page.url), "csrf": bool(csrf), "bl": bl,
+                "nb_status": nb.status_code, "raw_preview": nb.text[:800], "parsed_lines": parsed_lines[:10], "source_ids": source_ids_found}
 
 
 class GenerateRequest(BaseModel):
