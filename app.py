@@ -330,8 +330,8 @@ async def _nlm_query_async(question: str, notebook_id: str) -> str:
         sources_array = [[[sid]] for sid in source_ids] if source_ids else []
         q_params = [sources_array, question, None, [2, None, [1]], conversation_id]
         q_params_json = json.dumps(q_params, separators=(',', ':'))
-        # NLM streaming format: f.req=[[null, params_json]] (outer array wraps [null, ...])
-        f_req_q = json.dumps([[None, q_params_json]], separators=(',', ':'))
+        # GenerateFreeFormStreamed uses [null, params_json] (NOT batchexecute's [[[rpc_id, ...]]])
+        f_req_q = json.dumps([None, q_params_json], separators=(',', ':'))
         q_body_parts = [f"f.req={urllib.parse.quote(f_req_q, safe='')}"]
         if csrf:
             q_body_parts.append(f"at={urllib.parse.quote(csrf, safe='')}")
@@ -385,7 +385,7 @@ def _call_gemini_text(question: str, system: str = "", max_tokens: int = 3072) -
     key = os.environ.get("GEMINI_API_KEY", "")
     if not key:
         raise RuntimeError("Gemini API 키가 설정되지 않았습니다")
-    model = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash").removeprefix("models/")
+    model = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite").removeprefix("models/")
     body = {
         "contents": [{"parts": [{"text": question}]}],
         "generationConfig": {"maxOutputTokens": max_tokens},
