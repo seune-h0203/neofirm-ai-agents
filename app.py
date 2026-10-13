@@ -12,6 +12,7 @@ import subprocess
 import sys
 import textwrap
 import traceback
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -197,6 +198,37 @@ def _prefetch_nlm_csrf() -> str | None:
         return None
 
 
+def _parse_nlm_answer(response_text: str) -> str:
+    """Extract final answer frames, excluding protocol IDs and thinking frames."""
+    import re
+    answers = []
+    for line in response_text.removeprefix(")]}'").splitlines():
+        try:
+            data = json.loads(line)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(data, list):
+            continue
+        for chunk in data:
+            if not isinstance(chunk, list) or len(chunk) < 3 or chunk[0] != "wrb.fr" or not isinstance(chunk[2], str):
+                continue
+            try:
+                parsed = json.loads(chunk[2])
+                first = parsed[0]
+                text = first[0]
+                if not isinstance(first, list) or not isinstance(text, str) or len(text.strip()) <= 20:
+                    continue
+                if re.fullmatch(r"[0-9a-fA-F-]{36}", text.strip()):
+                    continue
+                if len(first) > 4 and isinstance(first[4], list) and first[4] and isinstance(first[4][-1], int) and first[4][-1] != 1:
+                    continue
+                answers.append(text.strip())
+            except (ValueError, TypeError, IndexError):
+                continue
+    # Combine all answer chunks; streaming responses deliver text in multiple frames
+    return "".join(answers) if answers else ""
+
+
 async def _nlm_query_async(question: str, notebook_id: str) -> str:
     """
     Query NotebookLM directly via async httpx — bypasses the NLM library's
@@ -313,38 +345,12 @@ async def _nlm_query_async(question: str, notebook_id: str) -> str:
         q_resp = await client.post(q_url, content=q_body, headers=rpc_headers, timeout=90)
         q_resp.raise_for_status()
 
-        # Parse streaming batchexecute response
-        # wrb.fr format: [["wrb.fr", null, "result_json", ...]] — item[1] is null for streaming
-        answer_parts = []
-        for line in q_resp.text.split("\n"):
-            try:
-                data = json.loads(line)
-                if isinstance(data, list):
-                    for item in data:
-                        if isinstance(item, list) and item and item[0] == "wrb.fr":
-                            # item[2] is the result JSON string (null on error)
-                            if len(item) >= 3 and item[2] and isinstance(item[2], str):
-                                inner = json.loads(item[2])
-                                if isinstance(inner, list) and inner:
-                                    # Try top-level list of text chunks
-                                    for chunk in inner:
-                                        if isinstance(chunk, list) and chunk and isinstance(chunk[0], str) and len(chunk[0]) > 2:
-                                            answer_parts.append(chunk[0])
-                                    # Also try nested: inner[0] is a list of chunks
-                                    if not answer_parts and isinstance(inner[0], list):
-                                        for chunk in inner[0]:
-                                            if isinstance(chunk, list) and chunk and isinstance(chunk[0], str):
-                                                answer_parts.append(chunk[0])
-            except Exception:
-                pass
+        answer = _parse_nlm_answer(q_resp.text)
+        if not answer:
+            raw_preview = q_resp.text[:1500]
+            raise RuntimeError(f"NLM parsing failed. source_ids={source_ids!r}. raw={raw_preview!r}")
+        return answer
 
-        if answer_parts:
-            return "".join(answer_parts).strip()
-        # Fallback: return raw so caller can see structure for debugging
-        raw = q_resp.text
-        if len(raw) > 100:
-            return f"[raw] {raw[:1200]}"
-        raise RuntimeError(f"NLM returned empty answer (status {q_resp.status_code})")
 
 
 _inject_nlm_cookies()
@@ -369,6 +375,9 @@ def _build_env() -> dict:
 _executor = ThreadPoolExecutor(max_workers=4)
 
 
+_gemini_request_lock = threading.Lock()
+
+
 def _call_gemini_text(question: str, system: str = "", max_tokens: int = 3072) -> str:
     import httpx
     import time
@@ -385,11 +394,13 @@ def _call_gemini_text(question: str, system: str = "", max_tokens: int = 3072) -
         body["system_instruction"] = {"parts": [{"text": system}]}
     for attempt in range(3):
         try:
-            resp = httpx.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-                headers={"x-goog-api-key": key, "content-type": "application/json"},
-                json=body, timeout=120,
-            )
+            # Avoid bursts from the three reviewer workers sharing one API quota.
+            with _gemini_request_lock:
+                resp = httpx.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                    headers={"x-goog-api-key": key, "content-type": "application/json"},
+                    json=body, timeout=120,
+                )
         except httpx.TimeoutException:
             if attempt < 2:
                 time.sleep(2 * (attempt + 1))
@@ -403,7 +414,16 @@ def _call_gemini_text(question: str, system: str = "", max_tokens: int = 3072) -
                 return text.strip()
             raise RuntimeError("Gemini가 빈 응답을 반환했습니다")
         if resp.status_code in (429, 500, 502, 503, 504) and attempt < 2:
-            time.sleep(3 * (attempt + 1))
+            delay = 30 * (attempt + 1) if resp.status_code == 429 else 3 * (attempt + 1)
+            if resp.status_code == 429:
+                for detail in resp.json().get("error", {}).get("details", []):
+                    retry_delay = detail.get("retryDelay", "")
+                    if isinstance(retry_delay, str) and retry_delay.endswith("s"):
+                        try:
+                            delay = max(delay, float(retry_delay[:-1]))
+                        except ValueError:
+                            pass
+            time.sleep(min(delay, 60))
             continue
         _err_log.error("Gemini HTTP %s (model=%s)", resp.status_code, model)
         if resp.status_code == 404:
@@ -495,7 +515,8 @@ async def run_nlm_query(question: str) -> str:
             )
         except Exception as e:
             _err_log.warning(f"NLM async query failed: {e} — Gemini로 대체")
-            return _gemini_research_fallback(question)
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(_executor, _gemini_research_fallback, question)
     # Windows / no cookies: subprocess path
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(_executor, _run_nlm_sync, question)
