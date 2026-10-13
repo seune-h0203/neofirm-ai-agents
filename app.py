@@ -127,8 +127,10 @@ def _inject_nlm_cookies() -> None:
     try:
         cookies_json = base64.b64decode(cookies_b64).decode("utf-8")
         (profile_dir / "cookies.json").write_text(cookies_json, encoding="utf-8")
+        # Leave csrf_token empty so nlm always extracts a fresh one from
+        # notebook.google.com at startup (stored token may be stale).
         metadata = json.dumps({
-            "csrf_token": csrf_token,
+            "csrf_token": "",
             "session_id": "",
             "email": None,
             "last_validated": datetime.now().isoformat(),
