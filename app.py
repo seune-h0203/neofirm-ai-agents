@@ -432,7 +432,7 @@ def _call_gemini_text(question: str, system: str = "", max_tokens: int = 3072) -
     key = os.environ.get("GEMINI_API_KEY", "")
     if not key:
         raise RuntimeError("Gemini API 키가 설정되지 않았습니다")
-    model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash").removeprefix("models/")
+    model = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite").removeprefix("models/")
     body = {
         "contents": [{"parts": [{"text": question}]}],
         "generationConfig": {"maxOutputTokens": max_tokens},
@@ -962,7 +962,7 @@ async def nlm_status():
         "nlm_auth_expired": _NLM_AUTH_EXPIRED,
         "nlm_csrf_cached": bool(_NLM_AUTH.get("csrf")),
         "gemini_api_set": bool(os.environ.get("GEMINI_API_KEY")),
-        "gemini_model": os.environ.get("GEMINI_MODEL", "gemini-2.0-flash"),
+        "gemini_model": os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite"),
         "nlm_refresh_required": _NLM_AUTH_EXPIRED,
         "nlm_refresh_instructions": (
             "NLM 쿠키 만료됨. 브라우저에서 notebook.google.com 로그인 후 쿠키를 JSON으로 내보내고 "
