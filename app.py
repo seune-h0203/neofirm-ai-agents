@@ -348,6 +348,34 @@ async def debug_info():
     }
 
 
+@app.get("/api/debug-cookies")
+async def debug_cookies():
+    """개발용: NLM 쿠키 주입 경로 및 파일 존재 여부 확인."""
+    try:
+        from platformdirs import user_data_dir
+        profile_dir = Path(user_data_dir("nlm", "nlm")) / "profiles" / "default"
+    except ImportError:
+        profile_dir = Path.home() / ".local" / "share" / "nlm" / "nlm" / "profiles" / "default"
+    cookies_path = profile_dir / "cookies.json"
+    metadata_path = profile_dir / "metadata.json"
+    cookies_content = None
+    if cookies_path.exists():
+        try:
+            raw = cookies_path.read_text(encoding="utf-8")
+            data = json.loads(raw)
+            cookies_content = {"keys": list(data.keys()) if isinstance(data, dict) else "list_len=" + str(len(data)), "size": len(raw)}
+        except Exception as e:
+            cookies_content = {"error": str(e)}
+    return {
+        "profile_dir": str(profile_dir),
+        "cookies_exists": cookies_path.exists(),
+        "metadata_exists": metadata_path.exists(),
+        "cookies_info": cookies_content,
+        "platform": platform.system(),
+        "home": str(Path.home()),
+    }
+
+
 @app.get("/api/test-nlm")
 async def test_nlm():
     """개발용: NLM 단일 쿼리 실행 후 raw stdout/stderr/returncode 반환."""
