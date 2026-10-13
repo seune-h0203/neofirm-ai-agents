@@ -831,19 +831,32 @@ async def debug_csrf_prefetch():
         html = resp.text
         csrf_m = re.search(r'"SNlM0e":"([^"]+)"', html)
         bl_m = re.search(r'"([^"]*boq_labs-tailwind-frontend_[^"]+)"', html)
-        # Also search for alternate patterns
-        at_m = re.search(r'["\']at["\']\s*:\s*["\']([^"\']{10,})["\']', html)
+        # Search for all CSRF-like patterns
+        patterns = {
+            "SNlM0e": r'"SNlM0e":"([^"]{10,})"',
+            "FdrFJe": r'"FdrFJe":"([^"]{5,})"',
+            "cfb2h": r'"cfb2h":"([^"]{5,})"',
+            "SNlM0e_squote": r"'SNlM0e':'([^']{10,})'",
+        }
+        found = {}
+        for name, pat in patterns.items():
+            m = re.search(pat, html)
+            if m:
+                found[name] = m.group(1)[:30]
+        # Find first <script> tag position
+        script_pos = html.find('<script')
         return {
             "status_code": resp.status_code,
             "final_url": str(resp.url),
             "html_len": len(html),
             "snlm0e_found": bool(csrf_m),
             "csrf_preview": csrf_m.group(1)[:20] + "..." if csrf_m else None,
-            "alt_at_found": bool(at_m),
-            "alt_at_preview": at_m.group(1)[:20] + "..." if at_m else None,
             "bl_found": bool(bl_m),
             "bl": bl_m.group(1) if bl_m else None,
-            "html_snippet": html[:800],
+            "patterns_found": found,
+            "first_script_pos": script_pos,
+            "around_script": html[script_pos:script_pos+300] if script_pos >= 0 else None,
+            "html_tail": html[-500:],
         }
     except Exception as e:
         return {"error": str(e)}
