@@ -479,6 +479,64 @@ def _call_gemini_text(question: str, system: str = "", max_tokens: int = 3072) -
     raise RuntimeError("Gemini 응답 실패")
 
 
+# ── Anthropic API direct HTTP call ────────────────────────────────────────────
+
+def _call_anthropic_text(question: str, system: str = "", max_tokens: int = 2048) -> str:
+    """Call Anthropic Claude API directly via httpx (no CLI required)."""
+    import httpx
+    import time
+
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not key:
+        raise RuntimeError("ANTHROPIC_API_KEY가 설정되지 않았습니다")
+    model = os.environ.get("CLAUDE_API_MODEL", "claude-sonnet-4-5")
+    messages = [{"role": "user", "content": question}]
+    body: dict = {"model": model, "max_tokens": max_tokens, "messages": messages}
+    if system:
+        body["system"] = system
+
+    for attempt in range(3):
+        try:
+            resp = httpx.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json=body,
+                timeout=180,
+            )
+        except httpx.TimeoutException:
+            if attempt < 2:
+                time.sleep(3 * (attempt + 1))
+                continue
+            raise RuntimeError("Anthropic API 응답 시간 초과 — 잠시 후 다시 시도해주세요") from None
+        if resp.status_code == 200:
+            content = resp.json().get("content", [])
+            text = "\n".join(b["text"] for b in content if b.get("type") == "text" and b.get("text"))
+            if text.strip():
+                return text.strip()
+            raise RuntimeError("Claude API가 빈 응답을 반환했습니다")
+        if resp.status_code in (429, 500, 502, 503, 504) and attempt < 2:
+            delay = 30 * (attempt + 1) if resp.status_code == 429 else 5 * (attempt + 1)
+            try:
+                retry_after = resp.headers.get("retry-after")
+                if retry_after:
+                    delay = max(delay, float(retry_after))
+            except (ValueError, TypeError):
+                pass
+            time.sleep(min(delay, 60))
+            continue
+        _err_log.error("Anthropic API HTTP %s (model=%s): %s", resp.status_code, model, resp.text[:200])
+        if resp.status_code == 401:
+            raise RuntimeError("ANTHROPIC_API_KEY 인증 실패 — 키를 확인해주세요")
+        if resp.status_code == 529:
+            raise RuntimeError("Anthropic API 과부하 — 잠시 후 다시 시도해주세요")
+        raise RuntimeError(f"Anthropic API 오류 ({resp.status_code}) — 키, 사용량 또는 서비스 상태를 확인해주세요")
+    raise RuntimeError("Anthropic API 응답 실패")
+
+
 def _gemini_research_fallback(question: str) -> str:
     """Gemini-based research for NeoFirm assignment analysis."""
     sys_prompt = (
@@ -714,21 +772,20 @@ async def _with_run_status(stream, expected_committees: int = 1, require_compari
         yield chunk
 
 
-app = FastAPI(title="NeoFirm Generator", version="2026.10.13.3")
+app = FastAPI(title="NeoFirm Generator", version="2026.10.13.4")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 @app.get("/api/runtime")
 async def runtime_status():
+    anthropic_key_set = bool(os.environ.get("ANTHROPIC_API_KEY"))
     return {
         "version": app.version,
-        "claude_mode": "subscription_cli",
+        "claude_mode": "api" if anthropic_key_set else "unavailable",
         "claude_cli_installed": bool(CLAUDE_EXE),
-        "claude_available": bool(CLAUDE_EXE) and (
-            platform.system() == "Windows" or bool(os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"))
-        ),
-        "claude_oauth_configured": bool(os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")),
-        "claude_model": os.environ.get("CLAUDE_CLI_MODEL", "sonnet"),
+        "claude_available": anthropic_key_set,
+        "claude_api_configured": anthropic_key_set,
+        "claude_model": os.environ.get("CLAUDE_API_MODEL", "claude-sonnet-4-5"),
         "gemini_model": os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite"),
     }
 
@@ -1262,55 +1319,13 @@ def _committee_call_gemini(sys_prompt: str, user_msg: str,
 def _committee_call_claude_cli(sys_prompt: str, user_msg: str,
                                 model: str = "claude",
                                 max_tokens: int = 2048) -> str:
-    """Call Claude via Pro subscription CLI subprocess (no API billing)."""
-    if not CLAUDE_EXE:
-        raise RuntimeError("Claude 구독 CLI가 설치되지 않았습니다. API 과금으로 전환하지 않습니다")
-
+    """Call Claude via Anthropic API (CLI-free, works on Railway)."""
     full_prompt = (
         f"[역할 및 지시사항]\n{sys_prompt}\n\n"
         f"{'='*60}\n\n"
         f"[분석 자료 및 요청]\n{user_msg}"
     )
-
-    import time
-    t0 = time.time()
-    # ANTHROPIC_API_KEY가 설정되어 있으면 Claude CLI 자체 인증을 막으므로 제거
-    cli_env = _build_env()
-    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
-                 "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"):
-        cli_env.pop(name, None)
-    try:
-        result = subprocess.run(
-            [CLAUDE_EXE, "--print", "--model", os.environ.get("CLAUDE_CLI_MODEL", "sonnet"),
-             "--tools", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
-             "--no-session-persistence", "--output-format", "json", full_prompt],
-            capture_output=True,
-            env=cli_env,
-            timeout=180,
-        )
-    except subprocess.TimeoutExpired:
-        raise RuntimeError(f"Claude CLI 응답 시간 초과 (180s, 경과 {time.time()-t0:.0f}s)")
-
-    elapsed = time.time() - t0
-    raw = result.stdout.decode("utf-8", errors="replace").strip()
-    try:
-        payload = json.loads(raw)
-    except ValueError:
-        payload = {}
-    if not isinstance(payload, dict):
-        payload = {}
-    output = payload.get("result", "")
-    if result.returncode != 0 or payload.get("is_error"):
-        err = output or result.stderr.decode("utf-8", errors="replace").strip()[:300]
-        if "limit" in err.lower():
-            raise RuntimeError(f"Claude 구독 사용 한도에 도달했습니다: {err}")
-        if any(word in err.lower() for word in ("login", "authentication", "oauth", "token")):
-            raise RuntimeError("Claude 구독 로그인이 필요합니다. 운영 OAuth 토큰을 확인해주세요")
-        raise RuntimeError(f"Claude 구독 CLI 실패: {err or '응답을 확인할 수 없습니다'}")
-    if not output.strip():
-        raise RuntimeError("Claude 구독 CLI가 빈 응답을 반환했습니다")
-    _err_log.info("[Claude subscription CLI] %.1fs — %s chars", elapsed, len(output))
-    return output.strip()
+    return _call_anthropic_text(full_prompt, max_tokens=max_tokens)
 
 
 
