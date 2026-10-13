@@ -142,6 +142,10 @@ def _inject_nlm_cookies() -> None:
         _err_log.warning(f"NLM cookie injection failed: {e}")
 
 
+# Module-level auth cache populated by _prefetch_nlm_csrf() at startup
+_NLM_AUTH: dict = {"csrf": "", "sid": "", "bl": ""}
+
+
 def _prefetch_nlm_csrf() -> str | None:
     """
     Fetch a fresh CSRF token from notebook.google.com using simple headers
@@ -190,8 +194,12 @@ def _prefetch_nlm_csrf() -> str | None:
             })
             (profile_dir / "metadata.json").write_text(metadata, encoding="utf-8")
             _err_log.info(f"NLM CSRF prefetched OK (len={len(new_csrf)}, bl={new_bl})")
+            # Cache in module-level dict so _nlm_query_async can reuse without fresh fetch
+            _NLM_AUTH["csrf"] = new_csrf
+            _NLM_AUTH["sid"] = new_sid or ""
         if new_bl:
             os.environ["NOTEBOOKLM_BL"] = new_bl
+            _NLM_AUTH["bl"] = new_bl
         return new_csrf
     except Exception as e:
         _err_log.warning(f"NLM CSRF prefetch failed: {e}")
@@ -265,18 +273,22 @@ async def _nlm_query_async(question: str, notebook_id: str) -> str:
     }
 
     async with httpx.AsyncClient(timeout=60) as client:
-        # Step 1: Get fresh CSRF and bl from notebook.google.com
-        page_resp = await client.get("https://notebook.google.com/", headers=base_headers,
-                                     follow_redirects=True)
-        if "accounts.google.com" in str(page_resp.url) or page_resp.status_code != 200:
-            raise RuntimeError(f"NLM auth: redirected to {page_resp.url}")
-        html = page_resp.text
-        csrf_m = re.search(r'"SNlM0e":"([^"]+)"', html)
-        sid_m = re.search(r'"FdrFJe":"([^"]+)"', html)
-        bl_m = re.search(r'"(boq_labs-tailwind-frontend_[^"]+)"', html)
-        csrf = csrf_m.group(1) if csrf_m else ""
-        session_id = sid_m.group(1) if sid_m else ""
-        bl = bl_m.group(1) if bl_m else os.environ.get("NOTEBOOKLM_BL", "boq_labs-tailwind-frontend_20261011.03_p0")
+        # Step 1: Use CSRF from startup cache (_prefetch_nlm_csrf writes it at server start)
+        csrf = _NLM_AUTH.get("csrf", "")
+        session_id = _NLM_AUTH.get("sid", "")
+        bl = _NLM_AUTH.get("bl", "") or os.environ.get("NOTEBOOKLM_BL", "boq_labs-tailwind-frontend_20261011.03_p0")
+        if not csrf:
+            # Fallback: try to load from metadata.json (written at startup by _prefetch_nlm_csrf)
+            meta_path = profile_dir / "metadata.json"
+            if meta_path.exists():
+                try:
+                    meta = json.loads(meta_path.read_text())
+                    csrf = meta.get("csrf_token", "")
+                    session_id = session_id or meta.get("session_id", "")
+                except Exception:
+                    pass
+        if not csrf:
+            raise RuntimeError("NLM CSRF token not available — startup prefetch may have failed")
 
         def _make_body(rpc_id: str, params: object, extra_csrf: str = "") -> str:
             p = json.dumps(params, separators=(',', ':'))
