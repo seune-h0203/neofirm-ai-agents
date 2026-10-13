@@ -492,27 +492,39 @@ async def test_google_access():
 
 @app.get("/api/test-nlm-python")
 async def test_nlm_python():
-    """개발용: NLM Python 라이브러리를 직접 import해서 쿼리 (subprocess 없이)."""
-    import asyncio
+    """개발용: 프리페치된 CSRF로 NLM Python 라이브러리 직접 쿼리."""
     try:
-        # Import NLM Python library directly
         from nlm.core.auth import get_auth_manager
         from nlm.core.client import NotebookLMClient
 
         loop = asyncio.get_event_loop()
 
         def _run_nlm_direct():
+            # Pre-fetch fresh CSRF first
+            fresh_csrf = _prefetch_nlm_csrf()
+            if not fresh_csrf:
+                return None, "CSRF prefetch failed"
+
+            # Load profile - should now have fresh CSRF
             auth = get_auth_manager()
-            with NotebookLMClient(auth_manager=auth) as client:
+            profile = auth.load_profile()
+            # Pass CSRF explicitly to bypass _refresh_auth_tokens()
+            with NotebookLMClient(
+                auth_manager=auth,
+                csrf_token=profile.csrf_token,
+                session_id=profile.session_id or "",
+            ) as client:
                 result = client.query(
                     NOTEBOOK_ID,
                     "입시컨설팅 시장 규모는?",
                 )
                 if isinstance(result, dict):
-                    return result.get("answer", str(result))[:500]
-                return str(result)[:500] if result else "(empty)"
+                    return result.get("answer", str(result))[:500], None
+                return str(result)[:500] if result else "(empty)", None
 
-        answer = await loop.run_in_executor(_executor, _run_nlm_direct)
+        answer, err = await loop.run_in_executor(_executor, _run_nlm_direct)
+        if err:
+            return {"status": "error", "error": err}
         return {"status": "ok", "answer": answer}
     except Exception as e:
         import traceback
