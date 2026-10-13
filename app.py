@@ -833,19 +833,19 @@ async def debug_csrf_prefetch():
     try:
         async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
             resp = await client.get("https://notebook.google.com/", headers=headers)
-        html = resp.text
-        csrf_m = re.search(r'"SNlM0e":"([^"]+)"', html)
-        if not csrf_m:
-            csrf_m = re.search(r'"WZsZ1e":"([^"]{10,})"', html)
-        bl_m = re.search(r'"KjTSIf":"([^"]*boq_labs-tailwind-frontend_[^"]+)"', html)
-        if not bl_m:
-            bl_m = re.search(r'"([^"]*boq_labs-tailwind-frontend_[^"]+)"', html)
-        # Also try notebook-specific page for SNlM0e
-        nb_resp = await client.get(f"https://notebook.google.com/notebook/{NOTEBOOK_ID}", headers=headers)
-        nb_html = nb_resp.text
-        nb_csrf_m = re.search(r'"SNlM0e":"([^"]+)"', nb_html)
-        if not nb_csrf_m:
-            nb_csrf_m = re.search(r'"WZsZ1e":"([^"]{10,})"', nb_html)
+            html = resp.text
+            csrf_m = re.search(r'"SNlM0e":"([^"]+)"', html)
+            if not csrf_m:
+                csrf_m = re.search(r'"WZsZ1e":"([^"]{10,})"', html)
+            bl_m = re.search(r'"KjTSIf":"([^"]*boq_labs-tailwind-frontend_[^"]+)"', html)
+            if not bl_m:
+                bl_m = re.search(r'"([^"]*boq_labs-tailwind-frontend_[^"]+)"', html)
+            # Also try notebook-specific page for SNlM0e
+            nb_resp = await client.get(f"https://notebook.google.com/notebook/{NOTEBOOK_ID}", headers=headers)
+            nb_html = nb_resp.text
+            nb_csrf_m = re.search(r'"SNlM0e":"([^"]+)"', nb_html)
+            if not nb_csrf_m:
+                nb_csrf_m = re.search(r'"WZsZ1e":"([^"]{10,})"', nb_html)
         return {
             "root_status": resp.status_code,
             "root_html_len": len(html),
