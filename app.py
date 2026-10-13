@@ -145,7 +145,8 @@ def _prefetch_nlm_csrf() -> str | None:
     """
     Fetch a fresh CSRF token from notebook.google.com using simple headers
     (no Sec-Fetch-* which trigger Google's re-auth redirect on datacenter IPs).
-    Writes the fresh token to metadata.json so NLM skips its own refresh.
+    Writes the fresh CSRF/session to metadata.json so NLM skips its own refresh.
+    Also extracts the current 'bl' build-label and sets NOTEBOOKLM_BL env var.
     Returns the new CSRF or None on failure.
     """
     try:
@@ -171,10 +172,14 @@ def _prefetch_nlm_csrf() -> str | None:
         if "accounts.google.com" in str(resp.url) or resp.status_code != 200:
             _err_log.warning(f"NLM CSRF prefetch: redirected to {resp.url}")
             return None
-        csrf_match = re.search(r'"SNlM0e":"([^"]+)"', resp.text)
-        sid_match = re.search(r'"FdrFJe":"([^"]+)"', resp.text)
+        html = resp.text
+        csrf_match = re.search(r'"SNlM0e":"([^"]+)"', html)
+        sid_match = re.search(r'"FdrFJe":"([^"]+)"', html)
+        # Extract current bl (build label) so API requests use correct version
+        bl_match = re.search(r'"([^"]*boq_labs-tailwind-frontend_[^"]+)"', html)
         new_csrf = csrf_match.group(1) if csrf_match else None
         new_sid = sid_match.group(1) if sid_match else ""
+        new_bl = bl_match.group(1) if bl_match else None
         if new_csrf:
             metadata = json.dumps({
                 "csrf_token": new_csrf,
@@ -183,7 +188,9 @@ def _prefetch_nlm_csrf() -> str | None:
                 "last_validated": datetime.now().isoformat(),
             })
             (profile_dir / "metadata.json").write_text(metadata, encoding="utf-8")
-            _err_log.info(f"NLM CSRF prefetched OK (len={len(new_csrf)})")
+            _err_log.info(f"NLM CSRF prefetched OK (len={len(new_csrf)}, bl={new_bl})")
+        if new_bl:
+            os.environ["NOTEBOOKLM_BL"] = new_bl
         return new_csrf
     except Exception as e:
         _err_log.warning(f"NLM CSRF prefetch failed: {e}")
