@@ -1340,11 +1340,11 @@ async function loadModelAvailability() {
       document.querySelectorAll('.model-opt').forEach(button => {
         if (button.dataset.model !== 'gemini') {
           button.disabled = true;
-          button.title = 'Claude와 비교 분석은 로컬 앱에서 사용할 수 있습니다.';
+          button.title = runtime.claude_unavailable_reason || 'Claude 구독 인증을 확인해주세요.';
         }
       });
       const note = document.createElement('p');
-      note.textContent = 'Claude와 비교 분석은 로컬 앱에서 사용할 수 있습니다.';
+      note.textContent = runtime.claude_unavailable_reason || 'Claude 구독 인증을 확인해주세요.';
       note.style.cssText = 'font-size:.75rem;color:var(--fg-3);margin:8px 0 0';
       document.getElementById('modelToggle').insertAdjacentElement('afterend', note);
     }

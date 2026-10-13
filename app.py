@@ -772,21 +772,56 @@ async def _with_run_status(stream, expected_committees: int = 1, require_compari
         yield chunk
 
 
-app = FastAPI(title="NeoFirm Generator", version="2026.10.13.5")
+app = FastAPI(title="NeoFirm Generator", version="2026.10.13.6")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+def _claude_unavailable_reason() -> str | None:
+    if not CLAUDE_EXE:
+        return "Claude 구독 CLI가 설치되지 않았습니다. API 과금으로 전환하지 않습니다"
+    if platform.system() != "Windows" and not os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
+        return "운영 Claude 구독 인증이 필요합니다"
+    expiry = os.environ.get("CLAUDE_OAUTH_EXPIRES_AT")
+    if expiry:
+        try:
+            if datetime.now().timestamp() * 1000 >= float(expiry):
+                return "Claude 구독 토큰이 만료되었습니다. 운영 토큰을 갱신해주세요"
+        except ValueError:
+            return "Claude 구독 토큰 만료 시각 설정이 잘못되었습니다"
+    return None
+
+
+@app.on_event("startup")
+async def log_claude_runtime():
+    logger = logging.getLogger("uvicorn.error")
+    try:
+        if CLAUDE_EXE:
+            probe = await asyncio.get_running_loop().run_in_executor(
+                _executor, lambda: subprocess.run([CLAUDE_EXE, "--version"],
+                                                  capture_output=True, text=True, timeout=10))
+            version = probe.stdout.strip() if probe.returncode == 0 else "probe failed"
+        else:
+            version = "not installed"
+        logger.info("NeoFirm %s Claude CLI=%s version=%s subscription_configured=%s",
+                    app.version, CLAUDE_EXE, version, _claude_unavailable_reason() is None)
+    except Exception:
+        logger.warning("Claude CLI version probe failed")
 
 
 @app.get("/api/runtime")
 async def runtime_status():
     cli_installed = bool(CLAUDE_EXE)
-    anthropic_key_set = bool(os.environ.get("ANTHROPIC_API_KEY"))
-    claude_available = cli_installed and anthropic_key_set
+    reason = _claude_unavailable_reason()
+    claude_available = reason is None
     return {
         "version": app.version,
         "claude_mode": "cli" if claude_available else "unavailable",
         "claude_cli_installed": cli_installed,
         "claude_available": claude_available,
-        "claude_model": os.environ.get("CLAUDE_API_MODEL", "claude-sonnet-4-5"),
+        "claude_auth_status": "configured" if claude_available else "unavailable",
+        "claude_unavailable_reason": reason,
+        "claude_oauth_expires_at": os.environ.get("CLAUDE_OAUTH_EXPIRES_AT"),
+        "claude_model": os.environ.get("CLAUDE_CLI_MODEL", "sonnet"),
         "gemini_model": os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite"),
     }
 
@@ -1320,11 +1355,9 @@ def _committee_call_gemini(sys_prompt: str, user_msg: str,
 def _committee_call_claude_cli(sys_prompt: str, user_msg: str,
                                 model: str = "claude",
                                 max_tokens: int = 2048) -> str:
-    """Call Claude via CLI subprocess (uses ANTHROPIC_API_KEY, charges API credits)."""
-    import time
-
-    if not CLAUDE_EXE:
-        raise RuntimeError("Claude CLI가 설치되지 않았습니다 (CLAUDE_EXE not found)")
+    """Use subscription OAuth only; never fall back to API billing."""
+    if reason := _claude_unavailable_reason():
+        raise RuntimeError(reason)
 
     full_prompt = (
         f"[역할 및 지시사항]\n{sys_prompt}\n\n"
@@ -1333,35 +1366,37 @@ def _committee_call_claude_cli(sys_prompt: str, user_msg: str,
     )
 
     env = os.environ.copy()
-
-    for attempt in range(3):
-        try:
-            proc = subprocess.run(
-                [CLAUDE_EXE, "--print"],
-                input=full_prompt,
-                capture_output=True,
-                text=True,
-                timeout=180,
-                env=env,
-            )
-        except subprocess.TimeoutExpired:
-            if attempt < 2:
-                time.sleep(5 * (attempt + 1))
-                continue
-            raise RuntimeError("Claude CLI 응답 시간 초과 — 잠시 후 다시 시도해주세요") from None
-
-        if proc.returncode == 0 and proc.stdout.strip():
-            return proc.stdout.strip()
-
-        stderr = (proc.stderr or "").strip()[:300]
-        if proc.returncode != 0:
-            _err_log.error("Claude CLI exit %s: %s", proc.returncode, stderr)
-            if attempt < 2:
-                time.sleep(5 * (attempt + 1))
-                continue
-            raise RuntimeError(f"Claude CLI 오류 (exit {proc.returncode}): {stderr}")
-
-    raise RuntimeError("Claude CLI 응답 실패")
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDECODE"):
+        env.pop(name, None)
+    env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = str(max_tokens)
+    cmd = [CLAUDE_EXE, "--print", "--output-format", "json", "--tools", "",
+           "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
+           "--setting-sources", "", "--no-session-persistence",
+           "--model", os.environ.get("CLAUDE_CLI_MODEL", "sonnet")]
+    try:
+        proc = subprocess.run(cmd, input=full_prompt.encode("utf-8"),
+                              capture_output=True, timeout=180, env=env)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("Claude CLI 응답 시간 초과 — 잠시 후 다시 시도해주세요") from None
+    stdout = proc.stdout.decode("utf-8", errors="replace").strip()
+    stderr = proc.stderr.decode("utf-8", errors="replace").strip()
+    try:
+        payload = json.loads(stdout)
+    except (json.JSONDecodeError, TypeError):
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    result = payload.get("result", "")
+    if proc.returncode == 0 and not payload.get("is_error") and isinstance(result, str) and result.strip():
+        _err_log.info("Claude subscription CLI completed successfully")
+        return result.strip()
+    detail = (str(result) + " " + stderr + " " + stdout).lower()
+    _err_log.error("Claude subscription CLI failed (exit=%s)", proc.returncode)
+    if any(word in detail for word in ("usage limit", "rate limit", "hit your limit")):
+        raise RuntimeError("Claude 구독 사용 한도에 도달했습니다. 한도 초기화 후 다시 시도해주세요")
+    if any(word in detail for word in ("oauth", "expired", "login", "authentication", "401")):
+        raise RuntimeError("Claude 구독 로그인 인증이 실패했습니다. 운영 토큰을 갱신해주세요")
+    raise RuntimeError(f"Claude CLI 응답 실패 (exit {proc.returncode}) — 운영 로그를 확인해주세요")
 
 
 
@@ -1699,10 +1734,8 @@ async def generate_claude(req: GenerateRequest):
     sector = req.sector.strip()
     if not sector:
         raise HTTPException(400, "전문서비스 영역을 입력해주세요")
-    if not CLAUDE_EXE:
-        raise HTTPException(503, "Claude 구독 CLI가 설치되지 않았습니다. API 과금으로 전환하지 않습니다")
-    if platform.system() != "Windows" and not os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
-        raise HTTPException(503, "운영 Claude 구독 인증이 필요합니다")
+    if reason := _claude_unavailable_reason():
+        raise HTTPException(503, reason)
 
     results: dict = {}
     events_queue: list = []
@@ -1799,10 +1832,8 @@ async def generate_both(req: GenerateRequest):
     sector = req.sector.strip()
     if not sector:
         raise HTTPException(400, "전문서비스 영역을 입력해주세요")
-    if not CLAUDE_EXE:
-        raise HTTPException(503, "Claude 구독 CLI가 설치되지 않았습니다. API 과금으로 전환하지 않습니다")
-    if platform.system() != "Windows" and not os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
-        raise HTTPException(503, "운영 Claude 구독 인증이 필요합니다")
+    if reason := _claude_unavailable_reason():
+        raise HTTPException(503, reason)
 
     results: dict = {}
 
