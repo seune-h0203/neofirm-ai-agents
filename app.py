@@ -772,19 +772,20 @@ async def _with_run_status(stream, expected_committees: int = 1, require_compari
         yield chunk
 
 
-app = FastAPI(title="NeoFirm Generator", version="2026.10.13.4")
+app = FastAPI(title="NeoFirm Generator", version="2026.10.13.5")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 @app.get("/api/runtime")
 async def runtime_status():
+    cli_installed = bool(CLAUDE_EXE)
     anthropic_key_set = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    claude_available = cli_installed and anthropic_key_set
     return {
         "version": app.version,
-        "claude_mode": "api" if anthropic_key_set else "unavailable",
-        "claude_cli_installed": bool(CLAUDE_EXE),
-        "claude_available": anthropic_key_set,
-        "claude_api_configured": anthropic_key_set,
+        "claude_mode": "cli" if claude_available else "unavailable",
+        "claude_cli_installed": cli_installed,
+        "claude_available": claude_available,
         "claude_model": os.environ.get("CLAUDE_API_MODEL", "claude-sonnet-4-5"),
         "gemini_model": os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite"),
     }
@@ -1319,13 +1320,48 @@ def _committee_call_gemini(sys_prompt: str, user_msg: str,
 def _committee_call_claude_cli(sys_prompt: str, user_msg: str,
                                 model: str = "claude",
                                 max_tokens: int = 2048) -> str:
-    """Call Claude via Anthropic API (CLI-free, works on Railway)."""
+    """Call Claude via CLI subprocess (uses ANTHROPIC_API_KEY, charges API credits)."""
+    import time
+
+    if not CLAUDE_EXE:
+        raise RuntimeError("Claude CLI가 설치되지 않았습니다 (CLAUDE_EXE not found)")
+
     full_prompt = (
         f"[역할 및 지시사항]\n{sys_prompt}\n\n"
         f"{'='*60}\n\n"
         f"[분석 자료 및 요청]\n{user_msg}"
     )
-    return _call_anthropic_text(full_prompt, max_tokens=max_tokens)
+
+    env = os.environ.copy()
+
+    for attempt in range(3):
+        try:
+            proc = subprocess.run(
+                [CLAUDE_EXE, "--print"],
+                input=full_prompt,
+                capture_output=True,
+                text=True,
+                timeout=180,
+                env=env,
+            )
+        except subprocess.TimeoutExpired:
+            if attempt < 2:
+                time.sleep(5 * (attempt + 1))
+                continue
+            raise RuntimeError("Claude CLI 응답 시간 초과 — 잠시 후 다시 시도해주세요") from None
+
+        if proc.returncode == 0 and proc.stdout.strip():
+            return proc.stdout.strip()
+
+        stderr = (proc.stderr or "").strip()[:300]
+        if proc.returncode != 0:
+            _err_log.error("Claude CLI exit %s: %s", proc.returncode, stderr)
+            if attempt < 2:
+                time.sleep(5 * (attempt + 1))
+                continue
+            raise RuntimeError(f"Claude CLI 오류 (exit {proc.returncode}): {stderr}")
+
+    raise RuntimeError("Claude CLI 응답 실패")
 
 
 
