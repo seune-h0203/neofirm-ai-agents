@@ -431,52 +431,31 @@ async def test_google_access():
 
 @app.get("/api/test-nlm-python")
 async def test_nlm_python():
-    """개발용: NLM Python 라이브러리 직접 호출로 디버깅."""
+    """개발용: NLM Python 라이브러리를 직접 import해서 쿼리 (subprocess 없이)."""
     import asyncio
     try:
-        from platformdirs import user_data_dir as _udd
-        profile_dir = Path(_udd("nlm", ensure_exists=False)) / "profiles" / "default"
-        cookies_path = profile_dir / "cookies.json"
-        metadata_path = profile_dir / "metadata.json"
+        # Import NLM Python library directly
+        from nlm.core.auth import get_auth_manager
+        from nlm.core.client import NotebookLMClient
 
-        cookies = json.loads(cookies_path.read_text()) if cookies_path.exists() else {}
-        metadata = json.loads(metadata_path.read_text()) if metadata_path.exists() else {}
-        csrf = metadata.get("csrf_token", "")
+        loop = asyncio.get_event_loop()
 
-        import httpx
-        cookie_str = "; ".join(f"{k}={v}" for k, v in cookies.items())
-        headers = {
-            "Cookie": cookie_str,
-            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-            "Origin": "https://notebook.google.com",
-            "Referer": "https://notebook.google.com/",
-            "X-Same-Domain": "1",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-        }
-        if csrf:
-            headers["X-Goog-Csrf-Token"] = csrf
+        def _run_nlm_direct():
+            auth = get_auth_manager()
+            with NotebookLMClient(auth_manager=auth) as client:
+                result = client.query(
+                    NOTEBOOK_ID,
+                    "입시컨설팅 시장 규모는?",
+                )
+                if isinstance(result, dict):
+                    return result.get("answer", str(result))[:500]
+                return str(result)[:500] if result else "(empty)"
 
-        # Try refresh first
-        async with httpx.AsyncClient(headers={"User-Agent": "Mozilla/5.0", "Cookie": cookie_str}, follow_redirects=True, timeout=15) as client:
-            resp = await client.get("https://notebook.google.com/")
-            import re
-            csrf_match = re.search(r'"SNlM0e":"([^"]+)"', resp.text)
-            new_csrf = csrf_match.group(1) if csrf_match else None
-            sid_match = re.search(r'"FdrFJe":"([^"]+)"', resp.text)
-            new_sid = sid_match.group(1) if sid_match else None
-
-        return {
-            "profile_dir": str(profile_dir),
-            "cookies_count": len(cookies),
-            "old_csrf": csrf[:30] + "..." if csrf else None,
-            "new_csrf_extracted": new_csrf[:30] + "..." if new_csrf else None,
-            "new_sid_extracted": new_sid[:20] + "..." if new_sid else None,
-            "html_length": len(resp.text),
-            "final_url": str(resp.url),
-        }
+        answer = await loop.run_in_executor(_executor, _run_nlm_direct)
+        return {"status": "ok", "answer": answer}
     except Exception as e:
         import traceback
-        return {"error": str(e), "traceback": traceback.format_exc()[-500:]}
+        return {"status": "error", "error": str(e), "traceback": traceback.format_exc()[-800:]}
 
 
 @app.get("/api/test-nlm")
