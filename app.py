@@ -795,6 +795,46 @@ async def test_batchexecute():
     }
 
 
+@app.get("/api/debug-csrf-prefetch")
+async def debug_csrf_prefetch():
+    """개발용: _prefetch_nlm_csrf 실행 결과 + HTML 진단."""
+    import re, httpx
+    try:
+        from platformdirs import user_data_dir as _udd
+        profile_dir = Path(_udd("nlm", "nlm")) / "profiles" / "default"
+    except ImportError:
+        profile_dir = Path.home() / ".local" / "share" / "nlm" / "nlm" / "profiles" / "default"
+
+    cookies_path = profile_dir / "cookies.json"
+    if not cookies_path.exists():
+        return {"error": "cookies.json not found", "profile_dir": str(profile_dir)}
+
+    cookies = json.loads(cookies_path.read_text(encoding="utf-8"))
+    cookie_str = "; ".join(f"{k}={v}" for k, v in cookies.items())
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Cookie": cookie_str,
+    }
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
+            resp = await client.get("https://notebook.google.com/", headers=headers)
+        html = resp.text
+        csrf_m = re.search(r'"SNlM0e":"([^"]+)"', html)
+        bl_m = re.search(r'"([^"]*boq_labs-tailwind-frontend_[^"]+)"', html)
+        return {
+            "status_code": resp.status_code,
+            "final_url": str(resp.url),
+            "html_len": len(html),
+            "snlm0e_found": bool(csrf_m),
+            "csrf_preview": csrf_m.group(1)[:20] + "..." if csrf_m else None,
+            "bl_found": bool(bl_m),
+            "bl": bl_m.group(1) if bl_m else None,
+            "html_snippet": html[:800],
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.get("/api/test-google-access")
 async def test_google_access():
     """개발용: Google 서버 접근 가능 여부 확인 (IP 차단 진단)."""
