@@ -846,6 +846,20 @@ async def test_nlm():
     }
 
 
+@app.get("/api/test-nlm-async")
+async def test_nlm_async():
+    """개발용: _nlm_query_async 직접 호출 테스트 (async httpx 경로)."""
+    try:
+        answer = await asyncio.wait_for(
+            _nlm_query_async("입시컨설팅 시장 규모는?", NOTEBOOK_ID),
+            timeout=90,
+        )
+        return {"status": "ok", "answer": answer[:1000]}
+    except Exception as e:
+        import traceback
+        return {"status": "error", "error": str(e), "traceback": traceback.format_exc()[-1200:]}
+
+
 class GenerateRequest(BaseModel):
     sector: str
 
