@@ -326,7 +326,6 @@ async def debug_info():
     venv_bin = Path(sys.executable).parent
     linux_nlm = venv_bin / "nlm"
     local_nlm = Path.home() / ".local" / "bin" / "nlm"
-    # check if notebooklm-cli is importable
     try:
         import importlib.util
         nlm_spec = importlib.util.find_spec("notebooklm")
@@ -346,6 +345,43 @@ async def debug_info():
         "NLM_COOKIES_SET": bool(os.environ.get("NLM_COOKIES_JSON")),
         "NLM_CSRF_SET": bool(os.environ.get("NLM_CSRF_TOKEN")),
         "cwd": str(Path.cwd()),
+    }
+
+
+@app.get("/api/test-nlm")
+async def test_nlm():
+    """개발용: NLM 단일 쿼리 실행 후 raw stdout/stderr/returncode 반환."""
+    import asyncio
+    nlm_path = NLM
+    if not nlm_path:
+        return {"error": "nlm not found", "nlm_path": None}
+
+    question = "입시컨설팅 시장 규모는?"
+    cmd = [nlm_path, "notebook", "query", NOTEBOOK_ID, question]
+    env = _build_env()
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=60)
+        returncode = proc.returncode
+        stdout_text = stdout_b.decode("utf-8", errors="replace")
+        stderr_text = stderr_b.decode("utf-8", errors="replace")
+    except asyncio.TimeoutError:
+        return {"error": "timeout after 60s"}
+    except Exception as e:
+        return {"error": str(e)}
+
+    return {
+        "returncode": returncode,
+        "stdout": stdout_text[:2000],
+        "stderr": stderr_text[:2000],
+        "nlm_path": nlm_path,
+        "notebook_id": NOTEBOOK_ID,
     }
 
 
