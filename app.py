@@ -772,7 +772,7 @@ async def _with_run_status(stream, expected_committees: int = 1, require_compari
         yield chunk
 
 
-app = FastAPI(title="NeoFirm Generator", version="2026.10.13.6")
+app = FastAPI(title="NeoFirm Generator", version="2026.10.13.7")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
@@ -1368,7 +1368,9 @@ def _committee_call_claude_cli(sys_prompt: str, user_msg: str,
     env = os.environ.copy()
     for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDECODE"):
         env.pop(name, None)
-    env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = str(max_tokens)
+    # A small CLI token cap can auto-continue a response and return only its
+    # final fragment as `result`. Use the CLI's complete-response default.
+    env.pop("CLAUDE_CODE_MAX_OUTPUT_TOKENS", None)
     cmd = [CLAUDE_EXE, "--print", "--output-format", "json", "--tools", "",
            "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
            "--setting-sources", "", "--no-session-persistence",

@@ -1881,7 +1881,7 @@ function renderWorkspace(data) {
   const decMatch  = memo.match(/\*\*([A-Z]+)\*\*\s*\n\*\*Confidence[：:]\*\*\s*(\w+)/i)
                  || memo.match(/\*\*(HOLD|INVEST|PASS)\*\*/i);
   const confMatch = memo.match(/\*\*Confidence[：:]\*\*\s*([A-Z]+)/i);
-  const dec  = (decMatch?.[1] || '—').toUpperCase();
+  const dec  = (data.slides_decision || decMatch?.[1] || '—').toUpperCase();
   const conf = confMatch?.[1] || (decMatch?.[2] || '—');
   const fdVal = document.getElementById('fdValue');
   fdVal.textContent = dec;

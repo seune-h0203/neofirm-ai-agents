@@ -52,6 +52,7 @@ def test_cli_environment_excludes_api_billing(linux_cli, monkeypatch):
     env = run.call_args.kwargs['env']
     assert 'ANTHROPIC_API_KEY' not in env and 'ANTHROPIC_AUTH_TOKEN' not in env
     assert env['CLAUDE_CODE_OAUTH_TOKEN'] == 'subscription'
+    assert 'CLAUDE_CODE_MAX_OUTPUT_TOKENS' not in env
     cmd = run.call_args.args[0]
     assert cmd[cmd.index('--tools') + 1] == ''
     assert '--strict-mcp-config' in cmd and '--no-session-persistence' in cmd
