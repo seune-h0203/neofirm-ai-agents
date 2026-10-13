@@ -1291,6 +1291,7 @@ function switchTab(key) {
 // ── state ─────────────────────────────────────────────────
 const results = {};
 let generating = false;
+let runHadErrors = false;
 
 // ── toast ─────────────────────────────────────────────────
 const toast = document.getElementById('toast');
@@ -1328,6 +1329,29 @@ function parseSSEChunk(text) {
 let selectedModel = 'gemini';
 const modelEndpoints = { gemini: '/api/generate', claude: '/api/generate-claude', both: '/api/generate-both' };
 const modelBtnLabels = { gemini: '▶ 분석 시작', claude: '▶ 분석 시작', both: '▶ 비교 분석 시작' };
+let claudeAvailable = true;
+async function loadModelAvailability() {
+  try {
+    const response = await fetch('/api/runtime');
+    if (!response.ok) return;
+    const runtime = await response.json();
+    claudeAvailable = runtime.claude_available !== false;
+    if (!claudeAvailable) {
+      document.querySelectorAll('.model-opt').forEach(button => {
+        if (button.dataset.model !== 'gemini') {
+          button.disabled = true;
+          button.title = 'Claude와 비교 분석은 로컬 앱에서 사용할 수 있습니다.';
+        }
+      });
+      const note = document.createElement('p');
+      note.textContent = 'Claude와 비교 분석은 로컬 앱에서 사용할 수 있습니다.';
+      note.style.cssText = 'font-size:.75rem;color:var(--fg-3);margin:8px 0 0';
+      document.getElementById('modelToggle').insertAdjacentElement('afterend', note);
+    }
+  } catch { /* Keep input usable when runtime status is temporarily unavailable. */ }
+}
+loadModelAvailability();
+
 
 // Initial icon state: Gemini active, Claude dimmed (default mode)
 (function initStep2Icons() {
@@ -1359,7 +1383,7 @@ document.getElementById('sectorInput').addEventListener('keydown', e => {
 
 function setAllBtnsDisabled(disabled) {
   genBtn.disabled = disabled;
-  document.querySelectorAll('.model-opt').forEach(b => { b.disabled = disabled; });
+  document.querySelectorAll('.model-opt').forEach(b => { b.disabled = disabled || (!claudeAvailable && b.dataset.model !== 'gemini'); });
 }
 
 async function startGenerate(apiEndpoint) {
@@ -1393,6 +1417,7 @@ async function startGenerate(apiEndpoint) {
   }
 
   generating = true;
+  runHadErrors = false;
   setAllBtnsDisabled(true);
   genBtn.textContent = '생성 중…';
 
@@ -1438,8 +1463,10 @@ async function startGenerate(apiEndpoint) {
       const { done, value } = await reader.read();
       if (done) break;
       buf += decoder.decode(value, { stream: true });
-      const events = parseSSEChunk(buf);
-      buf = buf.includes('\n\n') ? buf.slice(buf.lastIndexOf('\n\n') + 2) : buf;
+      const boundary = buf.lastIndexOf('\n\n');
+      if (boundary === -1) continue;
+      const events = parseSSEChunk(buf.slice(0, boundary + 2));
+      buf = buf.slice(boundary + 2);
       events.forEach(handleEvent);
     }
   } catch (err) {
@@ -1461,6 +1488,7 @@ function setWfStep(num, cls, statusText) {
 }
 
 function handleEvent(ev) {
+  if (ev.type === 'error' || ev.type.endsWith('_error')) runHadErrors = true;
   if (ev.type === 'start') {
     setWfStep(1, 'run', '진행 중');
   } else if (ev.type === 'pptx') {
@@ -1533,6 +1561,11 @@ function handleEvent(ev) {
       `<div class="placeholder" style="color:var(--err)"><div class="placeholder-icon">⚠</div><p>${ev.message}</p></div>`;
     showToast(`${ev.key} 생성 오류: ${ev.message}`, true);
   } else if (ev.type === 'workspace_clear') {
+    window._committeePptFilename = null;
+    window._researchPptx = null;
+    ['researchPptBtn','geminiPptBtn','claudePptBtn','compReportBtn'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.hidden = true;
+    });
     // Reset committee panel to blank state before new run
     const badge = document.getElementById('finalDecisionBadge');
     badge.textContent = '대기 중';
@@ -1635,8 +1668,23 @@ function handleEvent(ev) {
   } else if (ev.type === 'done') {
     renderAll();
     const allTab = tabBar.querySelector('[data-tab="all"]');
-    allTab.disabled = false;
-    showToast('모든 과제 생성 완료 ✓');
+    const count = Object.keys(results).length;
+    allTab.disabled = count === 0;
+    const success = ev.status === 'success' && !runHadErrors;
+    if (success) {
+      showToast('모든 과제 생성 완료 ✓');
+    } else {
+      const message = count === 0 ? '자료 조사에 실패했습니다. 오류 내용을 확인해주세요.' : '일부 단계가 실패했습니다. 결과와 오류를 확인해주세요.';
+      document.getElementById('committeeSubtitle').textContent = message;
+      const badge = document.getElementById('finalDecisionBadge');
+      badge.textContent = count === 0 ? '생성 실패' : '부분 완료';
+      badge.className = 'badge-pill badge-none';
+      ['reviewers-loading','disagree-loading','discussion-loading','resolution-loading','final-loading'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el && el.style.display !== 'none') el.textContent = '이 단계가 완료되지 않았습니다.';
+      });
+      showToast(message, true);
+    }
   }
 }
 

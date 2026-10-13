@@ -2,44 +2,31 @@
   "decisions": {
     "market": "HOLD",
     "technology": "HOLD",
-    "business": "INVEST"
+    "business": "HOLD"
   },
   "scores": {
     "market": {
       "problem_severity": 5,
-      "customer_evidence": 1,
+      "customer_evidence": 2,
       "market_opportunity": 4,
       "differentiation": 3,
-      "evidence_quality": 3
+      "evidence_quality": 2
     },
     "technology": {
-      "differentiation": 4,
-      "technical_feasibility": 4,
-      "execution_feasibility": 1,
-      "scalability": 4,
+      "differentiation": 3,
+      "technical_feasibility": 3,
+      "execution_feasibility": 4,
+      "scalability": 2,
       "evidence_quality": 2
     },
     "business": {
-      "execution_feasibility": 1,
+      "execution_feasibility": 3,
       "business_model": 4,
-      "scalability": 4,
-      "risk": 3,
+      "scalability": 3,
+      "risk": 4,
       "evidence_quality": 2
     }
   },
-  "disagreements": [
-    {
-      "id": "D00",
-      "type": "decision",
-      "issue": "Reviewers reached different final decisions",
-      "reviewer_positions": {
-        "market": "HOLD",
-        "technology": "HOLD",
-        "business": "INVEST"
-      },
-      "severity": "HIGH",
-      "why_it_matters": "A split decision requires committee deliberation before a recommendation can be made."
-    }
-  ],
-  "needs_committee_discussion": true
+  "disagreements": [],
+  "needs_committee_discussion": false
 }
