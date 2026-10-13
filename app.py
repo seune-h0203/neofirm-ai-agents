@@ -354,40 +354,56 @@ def _build_env() -> dict:
 _executor = ThreadPoolExecutor(max_workers=4)
 
 
+def _call_gemini_text(question: str, system: str = "", max_tokens: int = 3072) -> str:
+    import httpx
+    import time
+
+    key = os.environ.get("GEMINI_API_KEY", "")
+    if not key:
+        raise RuntimeError("Gemini API 키가 설정되지 않았습니다")
+    model = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash").removeprefix("models/")
+    body = {
+        "contents": [{"parts": [{"text": question}]}],
+        "generationConfig": {"maxOutputTokens": max_tokens},
+    }
+    if system:
+        body["system_instruction"] = {"parts": [{"text": system}]}
+    for attempt in range(3):
+        try:
+            resp = httpx.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                headers={"x-goog-api-key": key, "content-type": "application/json"},
+                json=body, timeout=120,
+            )
+        except httpx.TimeoutException:
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))
+                continue
+            raise RuntimeError("Gemini 응답 시간 초과 — 잠시 후 다시 시도해주세요") from None
+        if resp.status_code == 200:
+            candidates = resp.json().get("candidates", [])
+            parts = candidates[0].get("content", {}).get("parts", []) if candidates else []
+            text = "\n".join(p["text"] for p in parts if p.get("text") and not p.get("thought"))
+            if text.strip():
+                return text.strip()
+            raise RuntimeError("Gemini가 빈 응답을 반환했습니다")
+        if resp.status_code in (429, 500, 502, 503, 504) and attempt < 2:
+            time.sleep(3 * (attempt + 1))
+            continue
+        _err_log.error("Gemini HTTP %s (model=%s)", resp.status_code, model)
+        if resp.status_code == 404:
+            raise RuntimeError(f"Gemini 모델을 사용할 수 없습니다: {model}. GEMINI_MODEL 설정을 확인해주세요")
+        raise RuntimeError(f"Gemini API 오류 ({resp.status_code}) — 키, 사용량 또는 서비스 상태를 확인해주세요")
+    raise RuntimeError("Gemini 응답 실패")
+
+
 def _gemini_research_fallback(question: str) -> str:
-    """NLM 실패 시 Gemini로 연구 조사 대체 (503 재시도 포함)."""
-    import httpx, time
-
-    gemini_key = os.environ.get("GEMINI_API_KEY", "")
-    if gemini_key:
-        for attempt in range(3):
-            try:
-                resp = httpx.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}",
-                    headers={"content-type": "application/json"},
-                    json={
-                        "contents": [{"parts": [{"text": question}]}],
-                        "generationConfig": {"maxOutputTokens": 1024},
-                    },
-                    timeout=60,
-                )
-                if resp.status_code == 200:
-                    parts = resp.json()["candidates"][0]["content"]["parts"]
-                    text = next((p["text"] for p in parts if "text" in p), "")
-                    if text:
-                        return text.strip()
-                    _err_log.warning(f"Gemini 빈 응답 (시도 {attempt+1}/3)")
-                elif resp.status_code == 503:
-                    _err_log.warning(f"Gemini 503 (시도 {attempt+1}/3), {5*(attempt+1)}초 후 재시도")
-                    time.sleep(5 * (attempt + 1))
-                else:
-                    _err_log.warning(f"Gemini {resp.status_code}: {resp.text[:200]}")
-                    break
-            except Exception as e:
-                _err_log.warning(f"Gemini 호출 실패 (시도 {attempt+1}/3): {e}")
-                time.sleep(3)
-
-    raise RuntimeError("Gemini API 응답 실패 — 잠시 후 다시 시도해주세요")
+    """Keep fallback research clearly separate from notebook-grounded evidence."""
+    answer = _call_gemini_text(question)
+    return (
+        "> **자료 출처:** NotebookLM 조회에 실패하여 Gemini로 대체 생성했습니다. "
+        "업로드 자료에 근거한 결과가 아니므로 수치와 근거를 별도로 검증해주세요.\n\n" + answer
+    )
 
 
 def _run_nlm_sync(question: str) -> str:
@@ -540,6 +556,40 @@ QUERIES = {
     },
 }
 
+async def _with_run_status(stream, expected_committees: int = 1, require_comparison: bool = False):
+    """An SSE connection ending does not imply that its pipeline succeeded."""
+    research = set()
+    committees = set()
+    errors = 0
+    research_pptx = False
+    comparison = False
+    async for chunk in stream:
+        for line in chunk.splitlines():
+            if not line.startswith("data: "):
+                continue
+            event = json.loads(line[6:])
+            kind = event.get("type", "")
+            if kind == "result":
+                research.add(event["key"])
+            elif kind == "pptx":
+                research_pptx = bool(event.get("filename"))
+            elif kind == "committee_done" and event.get("pptx_filename"):
+                committees.add(event.get("engine", "gemini"))
+            elif kind == "comparison_done":
+                comparison = True
+            elif kind == "error" or kind.endswith("_error"):
+                errors += 1
+            elif kind == "done":
+                complete = (len(research) == len(QUERIES) and research_pptx
+                            and len(committees) == expected_committees
+                            and (comparison or not require_comparison) and errors == 0)
+                event.update(status="success" if complete else "partial" if research else "failed",
+                             research_completed=len(research), research_failed=len(QUERIES) - len(research),
+                             committees_completed=len(committees), errors=errors)
+                chunk = f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        yield chunk
+
+
 app = FastAPI(title="NeoFirm Generator")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
@@ -668,8 +718,8 @@ async def test_batchexecute():
         "csrf_len": len(csrf) if csrf else 0,
         "has_session_id": bool(session_id),
         "bl": bl,
-        "response_text": resp.text[:500] if resp.status_code != 200 else "(200 OK)",
-        "response_headers": dict(resp.headers)
+        "response_text": resp.text[:1500],
+        "response_headers": dict(list(resp.headers.items())[:5])
     }
 
 
@@ -900,7 +950,7 @@ async def generate(req: GenerateRequest):
         yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
-        stream(),
+        _with_run_status(stream()),
         media_type="text/event-stream; charset=utf-8",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -911,44 +961,33 @@ async def generate(req: GenerateRequest):
 # ---------------------------------------------------------------------------
 
 def _committee_call_gemini(sys_prompt: str, user_msg: str,
-                            model: str = "gemini",
-                            max_tokens: int = 2048) -> str:
-    import httpx, time
+                            model: str = "gemini", max_tokens: int = 2048) -> str:
+    return _call_gemini_text(user_msg, system=sys_prompt, max_tokens=max_tokens)
 
-    gemini_key = os.environ.get("GEMINI_API_KEY", "")
-    if gemini_key:
-        for attempt in range(3):
-            try:
-                t0 = time.time()
-                resp = httpx.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}",
-                    headers={"content-type": "application/json"},
-                    json={
-                        "system_instruction": {"parts": [{"text": sys_prompt}]},
-                        "contents": [{"parts": [{"text": user_msg}]}],
-                        "generationConfig": {"maxOutputTokens": max_tokens},
-                    },
-                    timeout=120,
-                )
-                elapsed = time.time() - t0
-                if resp.status_code == 200:
-                    parts = resp.json()["candidates"][0]["content"]["parts"]
-                    text = next((p["text"] for p in parts if "text" in p), "")
-                    if text:
-                        _err_log.info(f"[Gemini] {elapsed:.1f}s — {len(text)}자 응답")
-                        return text.strip()
-                    _err_log.warning(f"Gemini 빈 응답 ({elapsed:.1f}s, 시도 {attempt+1}/3)")
-                elif resp.status_code == 503:
-                    _err_log.warning(f"Gemini 503 ({elapsed:.1f}s, 시도 {attempt+1}/3), {5*(attempt+1)}초 후 재시도")
-                    time.sleep(5 * (attempt + 1))
-                else:
-                    _err_log.warning(f"Gemini API {resp.status_code} ({elapsed:.1f}s): {resp.text[:200]}")
-                    break
-            except Exception as e:
-                _err_log.warning(f"Gemini 호출 실패 (시도 {attempt+1}/3): {e}")
-                time.sleep(3)
 
-    raise RuntimeError("Gemini API 응답 실패 — 위원회 분석을 완료할 수 없습니다 (잠시 후 재시도)")
+def _committee_call_claude_api(sys_prompt: str, user_msg: str, max_tokens: int) -> str:
+    import httpx
+
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not key:
+        raise RuntimeError("Claude CLI 또는 ANTHROPIC_API_KEY 인증이 필요합니다")
+    model = os.environ.get("CLAUDE_MODEL", "claude-sonnet-5-5")
+    resp = httpx.post(
+        "https://api.anthropic.com/v1/messages",
+        headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
+        json={"model": model, "max_tokens": max_tokens, "system": sys_prompt,
+              "messages": [{"role": "user", "content": user_msg}]},
+        timeout=120,
+    )
+    if resp.status_code != 200:
+        message = resp.json().get("error", {}).get("message", "")
+        if "credit balance" in message.lower():
+            raise RuntimeError("Claude API 잔액이 부족합니다. Anthropic 잔액을 충전하거나 인증된 Claude CLI를 연결해주세요")
+        raise RuntimeError(f"Claude API 오류 ({resp.status_code}) — 인증, 모델 또는 사용량을 확인해주세요")
+    text = "\n".join(p["text"] for p in resp.json().get("content", []) if p.get("type") == "text")
+    if not text.strip():
+        raise RuntimeError("Claude API가 빈 응답을 반환했습니다")
+    return text.strip()
 
 
 def _committee_call_claude_cli(sys_prompt: str, user_msg: str,
@@ -956,7 +995,7 @@ def _committee_call_claude_cli(sys_prompt: str, user_msg: str,
                                 max_tokens: int = 2048) -> str:
     """Call Claude via Pro subscription CLI subprocess (no API billing)."""
     if not CLAUDE_EXE:
-        raise RuntimeError("Claude CLI를 찾을 수 없습니다 — PATH에 'claude'가 없습니다")
+        return _committee_call_claude_api(sys_prompt, user_msg, max_tokens)
 
     full_prompt = (
         f"[역할 및 지시사항]\n{sys_prompt}\n\n"
@@ -1327,8 +1366,8 @@ async def generate_claude(req: GenerateRequest):
     sector = req.sector.strip()
     if not sector:
         raise HTTPException(400, "전문서비스 영역을 입력해주세요")
-    if not CLAUDE_EXE:
-        raise HTTPException(503, "Claude CLI를 찾을 수 없습니다 — PATH에 'claude'가 없습니다. 설치 후 CLAUDE_EXE 환경변수로 경로를 지정하세요.")
+    if not CLAUDE_EXE and not os.environ.get("ANTHROPIC_API_KEY"):
+        raise HTTPException(503, "Claude CLI 또는 ANTHROPIC_API_KEY 인증이 필요합니다")
 
     results: dict = {}
     events_queue: list = []
@@ -1409,7 +1448,7 @@ async def generate_claude(req: GenerateRequest):
         yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
-        stream(),
+        _with_run_status(stream()),
         media_type="text/event-stream; charset=utf-8",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -1425,8 +1464,8 @@ async def generate_both(req: GenerateRequest):
     sector = req.sector.strip()
     if not sector:
         raise HTTPException(400, "전문서비스 영역을 입력해주세요")
-    if not CLAUDE_EXE:
-        raise HTTPException(503, "Claude CLI를 찾을 수 없습니다 — PATH에 'claude'가 없습니다. 설치 후 CLAUDE_EXE 환경변수로 경로를 지정하세요.")
+    if not CLAUDE_EXE and not os.environ.get("ANTHROPIC_API_KEY"):
+        raise HTTPException(503, "Claude CLI 또는 ANTHROPIC_API_KEY 인증이 필요합니다")
 
     results: dict = {}
 
@@ -1543,7 +1582,7 @@ async def generate_both(req: GenerateRequest):
         yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
-        stream(),
+        _with_run_status(stream(), expected_committees=2, require_comparison=True),
         media_type="text/event-stream; charset=utf-8",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
