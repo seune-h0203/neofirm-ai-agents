@@ -141,7 +141,57 @@ def _inject_nlm_cookies() -> None:
         _err_log.warning(f"NLM cookie injection failed: {e}")
 
 
+def _prefetch_nlm_csrf() -> str | None:
+    """
+    Fetch a fresh CSRF token from notebook.google.com using simple headers
+    (no Sec-Fetch-* which trigger Google's re-auth redirect on datacenter IPs).
+    Writes the fresh token to metadata.json so NLM skips its own refresh.
+    Returns the new CSRF or None on failure.
+    """
+    try:
+        from platformdirs import user_data_dir
+        profile_dir = Path(user_data_dir("nlm", "nlm")) / "profiles" / "default"
+    except ImportError:
+        profile_dir = Path.home() / ".local" / "share" / "nlm" / "nlm" / "profiles" / "default"
+
+    cookies_path = profile_dir / "cookies.json"
+    if not cookies_path.exists():
+        return None
+    try:
+        import re
+        import httpx
+        cookies = json.loads(cookies_path.read_text(encoding="utf-8"))
+        cookie_str = "; ".join(f"{k}={v}" for k, v in cookies.items())
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "Cookie": cookie_str,
+        }
+        resp = httpx.get("https://notebook.google.com/", headers=headers,
+                         follow_redirects=True, timeout=15)
+        if "accounts.google.com" in str(resp.url) or resp.status_code != 200:
+            _err_log.warning(f"NLM CSRF prefetch: redirected to {resp.url}")
+            return None
+        csrf_match = re.search(r'"SNlM0e":"([^"]+)"', resp.text)
+        sid_match = re.search(r'"FdrFJe":"([^"]+)"', resp.text)
+        new_csrf = csrf_match.group(1) if csrf_match else None
+        new_sid = sid_match.group(1) if sid_match else ""
+        if new_csrf:
+            metadata = json.dumps({
+                "csrf_token": new_csrf,
+                "session_id": new_sid or "",
+                "email": None,
+                "last_validated": datetime.now().isoformat(),
+            })
+            (profile_dir / "metadata.json").write_text(metadata, encoding="utf-8")
+            _err_log.info(f"NLM CSRF prefetched OK (len={len(new_csrf)})")
+        return new_csrf
+    except Exception as e:
+        _err_log.warning(f"NLM CSRF prefetch failed: {e}")
+        return None
+
+
 _inject_nlm_cookies()
+_prefetch_nlm_csrf()
 NLM = _find_nlm()
 _err_log.info(f"Server start — NLM executable: {NLM!r}  Python: {sys.executable}")
 
@@ -208,6 +258,10 @@ def _run_nlm_sync(question: str) -> str:
     if not nlm_path:
         _err_log.warning("nlm not found — Gemini로 연구 조사 대체")
         return _gemini_research_fallback(question)
+
+    # Pre-fetch a fresh CSRF token so nlm doesn't call its own _refresh_auth_tokens()
+    # (which uses Sec-Fetch-* headers that trigger Google's re-auth redirect on cloud IPs).
+    _prefetch_nlm_csrf()
 
     cmd = [nlm_path, "notebook", "query", NOTEBOOK_ID, question]
     env = _build_env()
