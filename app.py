@@ -174,7 +174,10 @@ def _run_nlm_sync(question: str) -> str:
     _err_log.debug(f"returncode={result.returncode}  stderr={stderr_text[:200]}")
     _err_log.debug(f"stdout (first 300): {stdout_text[:300]}")
 
-    if result.returncode != 0:
+    # nlm exits with code 255 on success — treat 0 and 255 as success, anything else as failure.
+    # Also treat success-code exits as failure if the output starts with an error string.
+    is_error_output = stdout_text.strip().startswith("Error:")
+    if result.returncode not in (0, 255) or is_error_output:
         msg = stdout_text.strip() or stderr_text or f"nlm exited with code {result.returncode}"
         _err_log.error(f"nlm failed rc={result.returncode}: {msg[:300]}")
         _err_log.warning("nlm 실패 — Gemini로 연구 조사 대체")
