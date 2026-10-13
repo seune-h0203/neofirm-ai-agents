@@ -271,18 +271,23 @@ async def _nlm_query_async(question: str, notebook_id: str) -> str:
         source_ids = []
         if nb_resp.status_code == 200:
             # Parse batchexecute response for source IDs
+            # Structure: [["wrb.fr","rLM1Ne","[[title, sources_data, nb_id, ...]]",...]]
+            # sources_data = [[src[0]=[src_id], src[1]=title, src[2]=metadata], ...]
             for line in nb_resp.text.split("\n"):
                 try:
                     chunk = json.loads(line)
                     if isinstance(chunk, list):
                         for item in chunk:
                             if isinstance(item, list) and len(item) >= 3 and item[0] == "wrb.fr" and item[1] == "rLM1Ne":
-                                nb_data = json.loads(item[2]) if isinstance(item[2], str) else item[2]
-                                if isinstance(nb_data, list) and nb_data:
-                                    inner = nb_data[0]
-                                    if isinstance(inner, list) and len(inner) > 2:
-                                        sources = inner[2] or []
-                                        source_ids = [s[0] for s in sources if isinstance(s, list) and s]
+                                result = json.loads(item[2]) if isinstance(item[2], str) else item[2]
+                                if isinstance(result, list) and result:
+                                    nb_entry = result[0]  # [title, sources_data, nb_id, ...]
+                                    if isinstance(nb_entry, list) and len(nb_entry) > 1:
+                                        sources_data = nb_entry[1] or []  # sources at index 1
+                                        for s in sources_data:
+                                            # s = [[src_id], title, metadata, ...]
+                                            if isinstance(s, list) and s and isinstance(s[0], list) and s[0]:
+                                                source_ids.append(s[0][0])
                 except Exception:
                     pass
 
@@ -293,7 +298,8 @@ async def _nlm_query_async(question: str, notebook_id: str) -> str:
         sources_array = [[[sid]] for sid in source_ids] if source_ids else []
         q_params = [sources_array, question, None, [2, None, [1]], conversation_id]
         q_params_json = json.dumps(q_params, separators=(',', ':'))
-        f_req_q = json.dumps([None, q_params_json], separators=(',', ':'))
+        # NLM streaming format: f.req=[[null, params_json]] (outer array wraps [null, ...])
+        f_req_q = json.dumps([[None, q_params_json]], separators=(',', ':'))
         q_body_parts = [f"f.req={urllib.parse.quote(f_req_q, safe='')}"]
         if csrf:
             q_body_parts.append(f"at={urllib.parse.quote(csrf, safe='')}")
@@ -307,28 +313,37 @@ async def _nlm_query_async(question: str, notebook_id: str) -> str:
         q_resp = await client.post(q_url, content=q_body, headers=rpc_headers, timeout=90)
         q_resp.raise_for_status()
 
-        # Parse streaming response
+        # Parse streaming batchexecute response
+        # wrb.fr format: [["wrb.fr", null, "result_json", ...]] — item[1] is null for streaming
         answer_parts = []
         for line in q_resp.text.split("\n"):
             try:
                 data = json.loads(line)
                 if isinstance(data, list):
                     for item in data:
-                        if isinstance(item, list) and len(item) >= 3 and item[1] == "GenerateFreeFormStreamed":
-                            inner = json.loads(item[2]) if isinstance(item[2], str) else item[2]
-                            if isinstance(inner, list) and inner and isinstance(inner[0], list):
-                                for chunk in inner[0]:
-                                    if isinstance(chunk, list) and chunk and isinstance(chunk[0], str):
-                                        answer_parts.append(chunk[0])
+                        if isinstance(item, list) and item and item[0] == "wrb.fr":
+                            # item[2] is the result JSON string (null on error)
+                            if len(item) >= 3 and item[2] and isinstance(item[2], str):
+                                inner = json.loads(item[2])
+                                if isinstance(inner, list) and inner:
+                                    # Try top-level list of text chunks
+                                    for chunk in inner:
+                                        if isinstance(chunk, list) and chunk and isinstance(chunk[0], str) and len(chunk[0]) > 2:
+                                            answer_parts.append(chunk[0])
+                                    # Also try nested: inner[0] is a list of chunks
+                                    if not answer_parts and isinstance(inner[0], list):
+                                        for chunk in inner[0]:
+                                            if isinstance(chunk, list) and chunk and isinstance(chunk[0], str):
+                                                answer_parts.append(chunk[0])
             except Exception:
                 pass
 
         if answer_parts:
             return "".join(answer_parts).strip()
-        # Fallback: raw text extraction
+        # Fallback: return raw so caller can see structure for debugging
         raw = q_resp.text
         if len(raw) > 100:
-            return f"[raw] {raw[:800]}"
+            return f"[raw] {raw[:1200]}"
         raise RuntimeError(f"NLM returned empty answer (status {q_resp.status_code})")
 
 
