@@ -38,11 +38,32 @@ NOTEBOOK_ID = "94637bca-8a45-4e2f-85d3-e9d68ae762f0"
 
 
 def _find_claude_exe() -> str | None:
+    # 1. Explicit env var override
+    if env_path := os.environ.get("CLAUDE_EXE"):
+        if Path(env_path).exists():
+            return env_path
+
+    # 2. System PATH (Linux/Mac: 'claude', Windows: 'claude.exe')
+    if found := _shutil.which("claude"):
+        return found
+
+    # 3. Windows: VSCode extension native binary
     ext_base = Path.home() / ".vscode" / "extensions"
     if ext_base.exists():
         for d in sorted(ext_base.glob("anthropic.claude-code-*/resources/native-binary/claude.exe"), reverse=True):
             if d.exists():
                 return str(d)
+
+    # 4. Common install locations
+    candidates = [
+        Path.home() / ".local" / "bin" / "claude",
+        Path("/usr/local/bin/claude"),
+        Path("/usr/bin/claude"),
+    ]
+    for p in candidates:
+        if p.exists():
+            return str(p)
+
     return None
 
 CLAUDE_EXE = _find_claude_exe()
@@ -376,6 +397,36 @@ async def debug_cookies():
     }
 
 
+@app.get("/api/test-google-access")
+async def test_google_access():
+    """개발용: Google 서버 접근 가능 여부 확인 (IP 차단 진단)."""
+    import httpx
+    try:
+        # Read injected cookies
+        from platformdirs import user_data_dir as _udd
+        profile_dir = Path(_udd("nlm", ensure_exists=False)) / "profiles" / "default"
+        cookies_path = profile_dir / "cookies.json"
+        if not cookies_path.exists():
+            return {"error": "cookies.json not found"}
+        cookies = json.loads(cookies_path.read_text())
+        cookie_str = "; ".join(f"{k}={v}" for k, v in cookies.items())
+
+        headers = {
+            "Cookie": cookie_str,
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        }
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
+            resp = await client.get("https://notebook.google.com/", headers=headers)
+            return {
+                "final_url": str(resp.url),
+                "status_code": resp.status_code,
+                "is_auth_redirect": "accounts.google.com" in str(resp.url),
+                "cookies_valid": "accounts.google.com" not in str(resp.url) and resp.status_code == 200,
+            }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.get("/api/test-nlm")
 async def test_nlm():
     """개발용: NLM 단일 쿼리 실행 후 raw stdout/stderr/returncode 반환."""
@@ -588,7 +639,7 @@ def _committee_call_claude_cli(sys_prompt: str, user_msg: str,
                                 max_tokens: int = 2048) -> str:
     """Call Claude via Pro subscription CLI subprocess (no API billing)."""
     if not CLAUDE_EXE:
-        raise RuntimeError("Claude CLI를 찾을 수 없습니다 (VSCode 확장 설치 필요)")
+        raise RuntimeError("Claude CLI를 찾을 수 없습니다 — PATH에 'claude'가 없습니다")
 
     full_prompt = (
         f"[역할 및 지시사항]\n{sys_prompt}\n\n"
@@ -960,7 +1011,7 @@ async def generate_claude(req: GenerateRequest):
     if not sector:
         raise HTTPException(400, "전문서비스 영역을 입력해주세요")
     if not CLAUDE_EXE:
-        raise HTTPException(503, "Claude CLI를 찾을 수 없습니다 (VSCode 확장 필요)")
+        raise HTTPException(503, "Claude CLI를 찾을 수 없습니다 — PATH에 'claude'가 없습니다. 설치 후 CLAUDE_EXE 환경변수로 경로를 지정하세요.")
 
     results: dict = {}
     events_queue: list = []
@@ -1058,7 +1109,7 @@ async def generate_both(req: GenerateRequest):
     if not sector:
         raise HTTPException(400, "전문서비스 영역을 입력해주세요")
     if not CLAUDE_EXE:
-        raise HTTPException(503, "Claude CLI를 찾을 수 없습니다")
+        raise HTTPException(503, "Claude CLI를 찾을 수 없습니다 — PATH에 'claude'가 없습니다. 설치 후 CLAUDE_EXE 환경변수로 경로를 지정하세요.")
 
     results: dict = {}
 
@@ -1300,9 +1351,9 @@ async def workspace_download():
 @app.get("/api/download/{filename:path}")
 async def download(filename: str):
     path = (OUTPUT_DIR / filename).resolve()
-    if not str(path).startswith(str(OUTPUT_DIR.resolve())):
+    if not path.is_relative_to(OUTPUT_DIR.resolve()):
         raise HTTPException(400, "잘못된 경로입니다")
-    if not path.exists():
+    if not path.is_file():
         raise HTTPException(404, "파일이 없습니다. 먼저 생성을 실행해주세요.")
     media = "application/vnd.openxmlformats-officedocument.presentationml.presentation" if filename.endswith(".pptx") else "text/markdown; charset=utf-8"
     return FileResponse(
