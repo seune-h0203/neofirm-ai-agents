@@ -460,6 +460,74 @@ async def debug_cookies():
     }
 
 
+@app.get("/api/test-batchexecute")
+async def test_batchexecute():
+    """개발용: batchexecute API 직접 호출 - raw 응답 반환."""
+    import re
+    import httpx
+    import urllib.parse
+
+    try:
+        from platformdirs import user_data_dir as _udd
+        profile_dir = Path(_udd("nlm", ensure_exists=False)) / "profiles" / "default"
+    except ImportError:
+        profile_dir = Path.home() / ".local" / "share" / "nlm" / "nlm" / "profiles" / "default"
+
+    cookies_path = profile_dir / "cookies.json"
+    metadata_path = profile_dir / "metadata.json"
+
+    if not cookies_path.exists():
+        return {"error": "cookies.json not found"}
+
+    cookies = json.loads(cookies_path.read_text())
+    metadata = json.loads(metadata_path.read_text()) if metadata_path.exists() else {}
+    csrf = metadata.get("csrf_token", "")
+    session_id = metadata.get("session_id", "")
+
+    cookie_str = "; ".join(f"{k}={v}" for k, v in cookies.items())
+
+    # Build batchexecute request (same as NLM's _call_rpc)
+    rpc_id = "rLM1Ne"  # GET_NOTEBOOK
+    notebook_id = NOTEBOOK_ID
+    params = [notebook_id, None, [2], None, 0]
+    params_json = json.dumps(params, separators=(',', ':'))
+    f_req = [[[rpc_id, params_json, None, "generic"]]]
+    f_req_json = json.dumps(f_req, separators=(',', ':'))
+
+    body_parts = [f"f.req={urllib.parse.quote(f_req_json, safe='')}"]
+    if csrf:
+        body_parts.append(f"at={urllib.parse.quote(csrf, safe='')}")
+    body = "&".join(body_parts) + "&"
+
+    bl = os.environ.get("NOTEBOOKLM_BL", "boq_labs-tailwind-frontend_20260108.06_p0")
+    url_params = {"rpcids": rpc_id, "source-path": f"/notebook/{notebook_id}", "bl": bl, "hl": "en", "rt": "c"}
+    if session_id:
+        url_params["f.sid"] = session_id
+    url = f"https://notebook.google.com/_/LabsTailwindUi/data/batchexecute?{urllib.parse.urlencode(url_params)}"
+
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        "Origin": "https://notebook.google.com",
+        "Referer": "https://notebook.google.com/",
+        "Cookie": cookie_str,
+        "X-Same-Domain": "1",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+    }
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.post(url, content=body, headers=headers)
+
+    return {
+        "status_code": resp.status_code,
+        "has_csrf": bool(csrf),
+        "csrf_len": len(csrf) if csrf else 0,
+        "has_session_id": bool(session_id),
+        "bl": bl,
+        "response_text": resp.text[:500] if resp.status_code != 200 else "(200 OK)",
+        "response_headers": dict(resp.headers)
+    }
+
+
 @app.get("/api/test-google-access")
 async def test_google_access():
     """개발용: Google 서버 접근 가능 여부 확인 (IP 차단 진단)."""
