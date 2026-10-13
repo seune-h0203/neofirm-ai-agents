@@ -85,6 +85,40 @@ def _find_nlm() -> str | None:
     return None
 
 
+def _inject_nlm_cookies() -> None:
+    """
+    If NLM_COOKIES_JSON env var is set, write it to the platform-specific
+    nlm profile directory so the CLI can authenticate without interactive login.
+    Called once at startup; safe to call on Windows too (no-op if var not set).
+    """
+    import base64
+    cookies_b64 = os.environ.get("NLM_COOKIES_JSON", "")
+    csrf_token = os.environ.get("NLM_CSRF_TOKEN", "")
+    if not cookies_b64:
+        return
+    try:
+        from platformdirs import user_data_dir
+        profile_dir = Path(user_data_dir("nlm", "nlm")) / "profiles" / "default"
+    except ImportError:
+        # fallback: ~/.local/share/nlm/nlm/profiles/default
+        profile_dir = Path.home() / ".local" / "share" / "nlm" / "nlm" / "profiles" / "default"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        cookies_json = base64.b64decode(cookies_b64).decode("utf-8")
+        (profile_dir / "cookies.json").write_text(cookies_json, encoding="utf-8")
+        metadata = json.dumps({
+            "csrf_token": csrf_token,
+            "session_id": "",
+            "email": None,
+            "last_validated": datetime.now().isoformat(),
+        })
+        (profile_dir / "metadata.json").write_text(metadata, encoding="utf-8")
+        _err_log.info(f"NLM cookies injected → {profile_dir}")
+    except Exception as e:
+        _err_log.warning(f"NLM cookie injection failed: {e}")
+
+
+_inject_nlm_cookies()
 NLM = _find_nlm()
 _err_log.info(f"Server start — NLM executable: {NLM!r}  Python: {sys.executable}")
 

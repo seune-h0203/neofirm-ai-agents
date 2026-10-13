@@ -7,3 +7,4 @@ starlette==1.3.1
 anyio==4.14.2
 anthropic>=0.40.0
 python-dotenv>=1.0.0
+notebooklm-cli>=0.1.12
