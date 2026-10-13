@@ -323,12 +323,28 @@ async def index():
 @app.get("/api/debug")
 async def debug_info():
     """개발용: nlm 탐색 결과 및 환경 확인."""
+    venv_bin = Path(sys.executable).parent
+    linux_nlm = venv_bin / "nlm"
+    local_nlm = Path.home() / ".local" / "bin" / "nlm"
+    # check if notebooklm-cli is importable
+    try:
+        import importlib.util
+        nlm_spec = importlib.util.find_spec("notebooklm")
+        nlm_pkg = str(nlm_spec) if nlm_spec else None
+    except Exception:
+        nlm_pkg = None
     return {
         "nlm_path": NLM,
         "nlm_which": _shutil.which("nlm"),
         "python_exe": sys.executable,
-        "scripts_dir": str(Path(sys.executable).parent / "Scripts"),
-        "scripts_nlm_exists": (Path(sys.executable).parent / "Scripts" / "nlm.exe").exists(),
+        "venv_bin": str(venv_bin),
+        "linux_nlm_path": str(linux_nlm),
+        "linux_nlm_exists": linux_nlm.exists(),
+        "local_bin_nlm_exists": local_nlm.exists(),
+        "nlm_pkg_spec": nlm_pkg,
+        "PATH": os.environ.get("PATH", "")[:500],
+        "NLM_COOKIES_SET": bool(os.environ.get("NLM_COOKIES_JSON")),
+        "NLM_CSRF_SET": bool(os.environ.get("NLM_CSRF_TOKEN")),
         "cwd": str(Path.cwd()),
     }
 
@@ -1229,7 +1245,6 @@ async def download(filename: str):
         path,
         filename=path.name,
         media_type=media,
-        headers={"Content-Disposition": f"attachment; filename=\"{path.name}\""},
     )
 
 
