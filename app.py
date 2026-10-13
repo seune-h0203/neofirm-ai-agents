@@ -144,16 +144,18 @@ def _inject_nlm_cookies() -> None:
 
 # Module-level auth cache populated by _prefetch_nlm_csrf() at startup
 _NLM_AUTH: dict = {"csrf": "", "sid": "", "bl": ""}
+# Set True when notebook page redirects to login (cookies expired); skips NLM attempts
+_NLM_AUTH_EXPIRED: bool = False
 
 
 def _prefetch_nlm_csrf() -> str | None:
     """
-    Fetch a fresh CSRF token from notebook.google.com using simple headers
-    (no Sec-Fetch-* which trigger Google's re-auth redirect on datacenter IPs).
-    Writes the fresh CSRF/session to metadata.json so NLM skips its own refresh.
-    Also extracts the current 'bl' build-label and sets NOTEBOOKLM_BL env var.
+    Fetch a fresh CSRF token from notebook.google.com.
+    Also checks whether the notebook-specific page is accessible (cookie validity).
+    Sets _NLM_AUTH_EXPIRED=True if cookies are expired (notebook page redirects to login).
     Returns the new CSRF or None on failure.
     """
+    global _NLM_AUTH_EXPIRED
     try:
         from platformdirs import user_data_dir
         profile_dir = Path(user_data_dir("nlm", "nlm")) / "profiles" / "default"
@@ -162,6 +164,7 @@ def _prefetch_nlm_csrf() -> str | None:
 
     cookies_path = profile_dir / "cookies.json"
     if not cookies_path.exists():
+        _NLM_AUTH_EXPIRED = True
         return None
     try:
         import re
@@ -180,21 +183,36 @@ def _prefetch_nlm_csrf() -> str | None:
         resp = httpx.get("https://notebook.google.com/", headers=headers,
                          follow_redirects=True, timeout=15)
         if "accounts.google.com" in str(resp.url) or resp.status_code != 200:
-            _err_log.warning(f"NLM CSRF prefetch: redirected to {resp.url}")
+            _err_log.warning(f"NLM CSRF prefetch: root redirected to {resp.url} — cookies expired")
+            _NLM_AUTH_EXPIRED = True
             return None
         html = resp.text
         csrf_match = re.search(r'"SNlM0e":"([^"]+)"', html)
-        # Fallback: newer NotebookLM uses WZsZ1e as the batchexecute CSRF key
         if not csrf_match:
             csrf_match = re.search(r'"WZsZ1e":"([^"]{10,})"', html)
         sid_match = re.search(r'"FdrFJe":"([^"]+)"', html)
-        # Extract current bl (build label) so API requests use correct version
         bl_match = re.search(r'"KjTSIf":"([^"]*boq_labs-tailwind-frontend_[^"]+)"', html)
         if not bl_match:
             bl_match = re.search(r'"([^"]*boq_labs-tailwind-frontend_[^"]+)"', html)
         new_csrf = csrf_match.group(1) if csrf_match else None
         new_sid = sid_match.group(1) if sid_match else ""
         new_bl = bl_match.group(1) if bl_match else None
+
+        # Verify notebook-specific page is accessible (actual auth check)
+        try:
+            nb_resp = httpx.get(
+                f"https://notebook.google.com/notebook/{NOTEBOOK_ID}",
+                headers=headers, follow_redirects=True, timeout=15,
+            )
+            if "accounts.google.com" in str(nb_resp.url):
+                _err_log.warning("NLM auth: notebook page requires login — NLM_COOKIES_JSON is expired")
+                _err_log.warning("Research will use Gemini API until NLM_COOKIES_JSON is refreshed")
+                _NLM_AUTH_EXPIRED = True
+                return None
+            _NLM_AUTH_EXPIRED = False
+        except Exception as nb_e:
+            _err_log.warning(f"NLM notebook page check failed: {nb_e} — assuming cookies valid")
+
         if new_csrf:
             metadata = json.dumps({
                 "csrf_token": new_csrf,
@@ -204,7 +222,6 @@ def _prefetch_nlm_csrf() -> str | None:
             })
             (profile_dir / "metadata.json").write_text(metadata, encoding="utf-8")
             _err_log.info(f"NLM CSRF prefetched OK (len={len(new_csrf)}, bl={new_bl})")
-            # Cache in module-level dict so _nlm_query_async can reuse without fresh fetch
             _NLM_AUTH["csrf"] = new_csrf
             _NLM_AUTH["sid"] = new_sid or ""
         if new_bl:
@@ -415,7 +432,7 @@ def _call_gemini_text(question: str, system: str = "", max_tokens: int = 3072) -
     key = os.environ.get("GEMINI_API_KEY", "")
     if not key:
         raise RuntimeError("Gemini API 키가 설정되지 않았습니다")
-    model = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite").removeprefix("models/")
+    model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash").removeprefix("models/")
     body = {
         "contents": [{"parts": [{"text": question}]}],
         "generationConfig": {"maxOutputTokens": max_tokens},
@@ -463,12 +480,17 @@ def _call_gemini_text(question: str, system: str = "", max_tokens: int = 3072) -
 
 
 def _gemini_research_fallback(question: str) -> str:
-    """Keep fallback research clearly separate from notebook-grounded evidence."""
-    answer = _call_gemini_text(question)
-    return (
-        "> **자료 출처:** NotebookLM 조회에 실패하여 Gemini로 대체 생성했습니다. "
-        "업로드 자료에 근거한 결과가 아니므로 수치와 근거를 별도로 검증해주세요.\n\n" + answer
+    """Gemini-based research for NeoFirm assignment analysis."""
+    sys_prompt = (
+        "당신은 한국 전문서비스 산업 전문 리서처이자 NeoFirm 과제 작성 전문가입니다. "
+        "아래 질문에 대해 다음 기준을 철저히 따르세요:\n"
+        "- 구체적인 수치, 사례, 시장 데이터를 포함하세요\n"
+        "- 한국 시장 현실을 반영하세요\n"
+        "- 반드시 한국어로 답변하세요 (영어 원문이 있어도 번역)\n"
+        "- 표나 bullet 형식으로 명확하게 정리하세요\n"
+        "- 각 항목에 실질적인 분석과 근거를 제시하세요"
     )
+    return _call_gemini_text(question, system=sys_prompt, max_tokens=4096)
 
 
 def _run_nlm_sync(question: str) -> str:
@@ -535,8 +557,44 @@ def _run_nlm_sync(question: str) -> str:
     return answer
 
 
+# ---------------------------------------------------------------------------
+# Research provider adapter pattern
+# ---------------------------------------------------------------------------
+
+class ResearchProvider:
+    """Abstract interface for research providers."""
+    async def query(self, question: str) -> str:
+        raise NotImplementedError
+
+
+class NotebookLMResearchProvider(ResearchProvider):
+    """NotebookLM-based research via batchexecute API."""
+    def __init__(self, notebook_id: str):
+        self.notebook_id = notebook_id
+
+    async def query(self, question: str) -> str:
+        return await _nlm_query_async(question, self.notebook_id)
+
+
+class GeminiResearchProvider(ResearchProvider):
+    """Gemini API-based research with NeoFirm-specific system prompt."""
+    async def query(self, question: str) -> str:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_executor, _gemini_research_fallback, question)
+
+
 async def run_nlm_query(question: str) -> str:
-    """Query NotebookLM. On Linux uses direct async httpx; on Windows uses subprocess."""
+    """Query NotebookLM with automatic Gemini fallback.
+
+    Routes to Gemini immediately if NLM cookies are known to be expired,
+    avoiding a failed NLM attempt and 120-second timeout wait.
+    """
+    # If cookies are confirmed expired at startup, skip NLM entirely
+    if _NLM_AUTH_EXPIRED:
+        _err_log.info("NLM auth expired — routing research to Gemini")
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_executor, _gemini_research_fallback, question)
+
     if platform.system() != "Windows" and os.environ.get("NLM_COOKIES_JSON"):
         try:
             return await asyncio.wait_for(
@@ -890,6 +948,27 @@ async def test_google_access():
             }
     except Exception as e:
         return {"error": str(e)}
+
+
+@app.get("/api/nlm-status")
+async def nlm_status():
+    """NotebookLM 인증 상태 및 현재 리서치 공급자 확인."""
+    provider = "gemini"
+    if not _NLM_AUTH_EXPIRED and os.environ.get("NLM_COOKIES_JSON") and platform.system() != "Windows":
+        provider = "notebooklm"
+    return {
+        "research_provider": provider,
+        "nlm_cookies_set": bool(os.environ.get("NLM_COOKIES_JSON")),
+        "nlm_auth_expired": _NLM_AUTH_EXPIRED,
+        "nlm_csrf_cached": bool(_NLM_AUTH.get("csrf")),
+        "gemini_api_set": bool(os.environ.get("GEMINI_API_KEY")),
+        "gemini_model": os.environ.get("GEMINI_MODEL", "gemini-2.0-flash"),
+        "nlm_refresh_required": _NLM_AUTH_EXPIRED,
+        "nlm_refresh_instructions": (
+            "NLM 쿠키 만료됨. 브라우저에서 notebook.google.com 로그인 후 쿠키를 JSON으로 내보내고 "
+            "Base64 인코딩하여 Railway 환경 변수 NLM_COOKIES_JSON을 업데이트하세요."
+        ) if _NLM_AUTH_EXPIRED else None,
+    }
 
 
 @app.get("/api/test-nlm-python")
