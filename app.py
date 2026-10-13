@@ -170,6 +170,11 @@ def _prefetch_nlm_csrf() -> str | None:
         cookie_str = "; ".join(f"{k}={v}" for k, v in cookies.items())
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
             "Cookie": cookie_str,
         }
         resp = httpx.get("https://notebook.google.com/", headers=headers,
@@ -813,6 +818,11 @@ async def debug_csrf_prefetch():
     cookie_str = "; ".join(f"{k}={v}" for k, v in cookies.items())
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
         "Cookie": cookie_str,
     }
     try:
@@ -821,12 +831,16 @@ async def debug_csrf_prefetch():
         html = resp.text
         csrf_m = re.search(r'"SNlM0e":"([^"]+)"', html)
         bl_m = re.search(r'"([^"]*boq_labs-tailwind-frontend_[^"]+)"', html)
+        # Also search for alternate patterns
+        at_m = re.search(r'["\']at["\']\s*:\s*["\']([^"\']{10,})["\']', html)
         return {
             "status_code": resp.status_code,
             "final_url": str(resp.url),
             "html_len": len(html),
             "snlm0e_found": bool(csrf_m),
             "csrf_preview": csrf_m.group(1)[:20] + "..." if csrf_m else None,
+            "alt_at_found": bool(at_m),
+            "alt_at_preview": at_m.group(1)[:20] + "..." if at_m else None,
             "bl_found": bool(bl_m),
             "bl": bl_m.group(1) if bl_m else None,
             "html_snippet": html[:800],
