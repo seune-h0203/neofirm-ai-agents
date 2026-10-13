@@ -840,26 +840,23 @@ async def debug_csrf_prefetch():
         bl_m = re.search(r'"KjTSIf":"([^"]*boq_labs-tailwind-frontend_[^"]+)"', html)
         if not bl_m:
             bl_m = re.search(r'"([^"]*boq_labs-tailwind-frontend_[^"]+)"', html)
-        # Extract full WIZ_global_data to find CSRF key
-        wiz_m = re.search(r'window\.WIZ_global_data\s*=\s*(\{.*?\})\s*;', html, re.DOTALL)
-        wiz_data = {}
-        if wiz_m:
-            try:
-                wiz_data = json.loads(wiz_m.group(1))
-            except Exception:
-                wiz_data = {"parse_error": wiz_m.group(1)[:200]}
-        # Also look for SNlM0e anywhere in document
-        all_snlm = re.findall(r'SNlM0e', html)
+        # Also try notebook-specific page for SNlM0e
+        nb_resp = await client.get(f"https://notebook.google.com/notebook/{NOTEBOOK_ID}", headers=headers)
+        nb_html = nb_resp.text
+        nb_csrf_m = re.search(r'"SNlM0e":"([^"]+)"', nb_html)
+        if not nb_csrf_m:
+            nb_csrf_m = re.search(r'"WZsZ1e":"([^"]{10,})"', nb_html)
         return {
-            "status_code": resp.status_code,
-            "final_url": str(resp.url),
-            "html_len": len(html),
-            "snlm0e_found": bool(csrf_m),
-            "snlm0e_count_in_html": len(all_snlm),
-            "bl_found": bool(bl_m),
+            "root_status": resp.status_code,
+            "root_html_len": len(html),
+            "root_csrf_key": "SNlM0e" if re.search(r'"SNlM0e"', html) else ("WZsZ1e" if re.search(r'"WZsZ1e"', html) else "none"),
+            "root_csrf": csrf_m.group(1)[:30] if csrf_m else None,
+            "nb_status": nb_resp.status_code,
+            "nb_url": str(nb_resp.url),
+            "nb_html_len": len(nb_html),
+            "nb_csrf_key": "SNlM0e" if re.search(r'"SNlM0e"', nb_html) else ("WZsZ1e" if re.search(r'"WZsZ1e"', nb_html) else "none"),
+            "nb_csrf": nb_csrf_m.group(1)[:30] if nb_csrf_m else None,
             "bl": bl_m.group(1) if bl_m else None,
-            "wiz_keys": list(wiz_data.keys()),
-            "wiz_data": {k: str(v)[:60] for k, v in wiz_data.items()},
         }
     except Exception as e:
         return {"error": str(e)}
